@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.51] - 2024-01-09
+
+### Changed
+
+- Updated the recent checkins count on the dashboard
+
+## [0.1.50] - 2024-01-09
+
+### Changed
+
+- Updated the dashboard page to have more links to the search pages based on what you click
+- Updated the console view for a callback to move the speeddial button closer to the task itself
+
+## [0.1.48] - 2024-01-08
+
+### Changed
+
+- Updated home page to be a dashboard page
+- Updated analytics button on operations page to redirect to dashboard page
+
+## [0.1.47] - 2024-01-03
+
+### Changed
+
+- Fixed the context menu "manually add edge" for graph views
+- Added context menu for C2 path dialog from callback table view
+
+## [0.1.46] - 2024-01-03
+
+### Changed
+
+- Fixed a bug in split tasking when fetching information about subtasks causing an error
+
+## [0.1.45] - 2023-12-29
+
+### Changed
+
+- Added initial functionality for a "console"-like view of tasks
+  - This has no accordions, but still processes browser scripts so are subject to double scroll bars
+- Fixed popper click-away functionality to close when selecting other dropdowns so you don't have multiple overlapping
+
+## [0.1.44] - 2023-12-27
+
+### Changed
+
+- Adjusted tasking so valid uuid values for "File" types to prevent needing to re-submit files
+
+## [0.1.43] - 2023-12-27
+
+### Changed
+
+- Updated the main C2 Profile/Payload Types page to be a table instead of a series of cards
+- Fixed toast notifications to be centered and stretch
+
+## [0.1.42] - 2023-12-25
+
+### Changed
+
+- fixed an issue with task multiple double converting parsed tasking data to strings
+
+## [0.1.41] - 2023-12-24
+
+### Changed
+
+- fixed an issue with the new task multiple last checkin time
+- added an `ip` column to the task multiple and hide multiple dialogs
+
+## [0.1.39] - 2023-12-24
+
+### Changed
+
+- updated the task multiple and hide multiple dialogs
 
 ## [0.1.38] - 2023-12-
 

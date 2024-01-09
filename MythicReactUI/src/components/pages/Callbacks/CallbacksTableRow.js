@@ -41,15 +41,17 @@ import {TaskFromUIButton} from './TaskFromUIButton';
 import { MythicSelectFromRawListDialog } from '../../MythicComponents/MythicSelectFromListDialog';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import { areEqual } from 'react-window';
-import {CallbackGraphEdgesContext} from './CallbacksTop';
+import {CallbackGraphEdgesContext, OnOpenTabContext} from './CallbacksTop';
 import Moment from 'react-moment';
 import moment from 'moment';
 import WidgetsIcon from '@mui/icons-material/Widgets';
 import {ModifyCallbackMythicTreeGroupsDialog} from "./ModifyCallbackMythicTreeGroupsDialog";
+import TerminalIcon from '@mui/icons-material/Terminal';
 
-export const CallbacksTableIDCell = React.memo(({rowData, onOpenTab, toggleLock, updateDescription, setOpenHideMultipleDialog, setOpenTaskMultipleDialog}) =>{
+export const CallbacksTableIDCell = React.memo(({rowData, toggleLock, updateDescription, setOpenHideMultipleDialog, setOpenTaskMultipleDialog}) =>{
     const dropdownAnchorRef = React.useRef(null);
     const theme = useTheme();
+    const onOpenTab = useContext(OnOpenTabContext);
     const [openMetaDialog, setOpenMetaDialog] = React.useState(false);
     const [dropdownOpen, setDropdownOpen] = React.useState(false);
     const [openEditDescriptionDialog, setOpenEditDescriptionDialog] = React.useState(false);
@@ -192,6 +194,11 @@ export const CallbacksTableIDCell = React.memo(({rowData, onOpenTab, toggleLock,
                 evt.stopPropagation();
                 localOnOpenTab("interactSplit");
             }},
+        {name: "Console View", icon: <TerminalIcon style={{paddingRight: "5px"}}/>, click: (evt) => {
+                evt.stopPropagation();
+                localOnOpenTab("interactConsole");
+            }
+        },
         {name: rowDataStatic.locked ? 'Unlock (Locked by ' + rowDataStatic.locked_operator.username + ')' : 'Lock Callback', icon: rowDataStatic.locked ? (<LockOpenIcon style={{color: theme.successOnMain, paddingRight: "5px"}}/>) : (<LockIcon style={{color: theme.errorOnMain, paddingRight: "5px"}} />), click: (evt) => {
             evt.stopPropagation();
             localToggleLock();
@@ -246,7 +253,7 @@ export const CallbacksTableIDCell = React.memo(({rowData, onOpenTab, toggleLock,
                     }}
                 >
                     <Paper className={"dropdownMenuColored"} elevation={5}>
-                    <ClickAwayListener onClickAway={handleClose}>
+                    <ClickAwayListener onClickAway={handleClose} mouseEvent={"onMouseDown"}>
                         <MenuList id="split-button-menu">
                         {options.map((option, index) => (
                             <MenuItem
@@ -416,6 +423,7 @@ export const CallbacksTableC2Cell = React.memo(({rowData}) => {
     const theme = useTheme();
     const [localRowData, setLocalRowData] = React.useState(rowData);
     const initialCallbackGraphEdges = useContext(CallbackGraphEdgesContext);
+    const onOpenTab = useContext(OnOpenTabContext);
     const [activeEgress, setActiveEgress] = React.useState(theme.palette.success.main);
     const [hasEgressRoute, setHasEgressRoute] = React.useState(true);
     const [openC2Dialog, setOpenC2Dialog] = React.useState(false);
@@ -518,6 +526,7 @@ export const CallbacksTableC2Cell = React.memo(({rowData}) => {
                             onClose={()=>{setOpenC2Dialog(false);}}  
                             callback={localRowData}
                             callbackgraphedges={callbackgraphedgesAll}
+                            onOpenTab={onOpenTab}
                         />
                     }
                 />

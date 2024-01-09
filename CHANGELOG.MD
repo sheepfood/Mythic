@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.11] - 2023-01-04
+
+### Changed
+
+- Added a check for file transfers when getting null data
+- Added a fix for spawning a new callback off a payload through the UI
+
+## [3.2.10] - 2023-12-26
+
+### Changed
+
+- Fixed an issue with interactive tasking not working if there wasn't also a port open
+
+## [3.2.9] - 2023-12-26
+
+### Changed
+
+- Updated the Dockerfile for Mythic_CLI and mythic-docker for go v1.21 GOPROXY usage changes that broke builds
+
 ## [3.2.8] - 2023-12-21
 
 ### Changed

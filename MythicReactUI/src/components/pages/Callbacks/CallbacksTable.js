@@ -269,7 +269,7 @@ function CallbacksTablePreMemo(props){
                             return <CallbacksTableIDCell
                                 rowData={row}
                                 key={`callback${row.id}_${c.name}`}
-                                onOpenTab={props.onOpenTab}
+                                //onOpenTab={props.onOpenTab}
                                 updateDescription={updateDescriptionSubmit}
                                 setOpenHideMultipleDialog={setOpenHideMultipleDialog}
                                 setOpenTaskMultipleDialog={setOpenTaskMultipleDialog}
@@ -348,7 +348,7 @@ function CallbacksTablePreMemo(props){
             {openHideMultipleDialog &&
                 <MythicDialog
                     fullWidth={true}
-                    maxWidth="lg"
+                    maxWidth="xl"
                     open={openHideMultipleDialog}
                     onClose={() => {setOpenHideMultipleDialog(false);}}
                     innerDialog={
@@ -359,7 +359,7 @@ function CallbacksTablePreMemo(props){
             {openTaskMultipleDialog.open &&
                 <MythicDialog
                     fullWidth={true}
-                    maxWidth="lg"
+                    maxWidth="xl"
                     open={openTaskMultipleDialog.open}
                     onClose={() => {setOpenTaskMultipleDialog({open: false, data: {}});}}
                     innerDialog={
