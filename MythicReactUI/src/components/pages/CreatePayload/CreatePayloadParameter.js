@@ -16,15 +16,16 @@ import { DesktopDatePicker } from '@mui/x-date-pickers/DesktopDatePicker';
 import dayjs from 'dayjs';
 import Switch from '@mui/material/Switch';
 import { MythicStyledTooltip } from '../../MythicComponents/MythicStyledTooltip';
-import Paper from '@mui/material/Paper';
 import MythicStyledTableCell from '../../MythicComponents/MythicTableCell';
 import {Typography} from '@mui/material';
 import {MythicFileContext} from "../../MythicComponents/MythicFileContext";
+import {snackActions} from "../../utilities/Snackbar";
 
 export function CreatePayloadParameter({onChange, parameter_type, default_value, name, required, verifier_regex, id, description, initialValue, choices, trackedValue, returnAllDictValues}){
     const [value, setValue] = React.useState("");
     const [valueNum, setValueNum] = React.useState(0);
     const [multiValue, setMultiValue] = React.useState([]);
+    const [chooseOneCustomValue, setChooseOneCustomValue] = React.useState("");
     const [dictValue, setDictValue] = React.useState([]);
     const [dictOptions, setDictOptions] = React.useState([]);
     const [dictSelectOptions, setDictSelectOptions] = React.useState([]);
@@ -34,6 +35,7 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
     const [arrayValue, setArrayValue] = React.useState([""]);
     const [typedArrayValue, setTypedArrayValue] = React.useState([]);
     const [fileValue, setFileValue] = React.useState({name: ""});
+    const [fileMultValue, setFileMultValue] = React.useState([]);
     const submitDictChange = (list) => {
         onChange(name, list, false);
     };
@@ -41,10 +43,17 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
         setFileValue({name: evt.target.files[0].name});
         onChange(name, evt.target.files[0]);
     }
+    const onFileMultChange = (evt) => {
+        setFileMultValue([...evt.target.files]);
+        onChange(name, [...evt.target.files]);
+    }
     useEffect( () => {
-        if(parameter_type === "ChooseOne"){
+        if(parameter_type === "ChooseOne" || parameter_type === "ChooseOneCustom"){
             setValue(trackedValue);
-            setChooseOptions(choices); 
+            setChooseOptions(choices);
+            if(!choices.includes(trackedValue)){
+                setChooseOneCustomValue(trackedValue);
+            }
         }else if(parameter_type === "Number"){
             setValueNum(trackedValue);
         }else if(parameter_type === "String"){
@@ -53,11 +62,13 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
             setMultiValue(trackedValue);
             setChooseOptions(choices);
         }else if(parameter_type === "File") {
-            if(typeof trackedValue === "string"){
+            if (typeof trackedValue === "string") {
                 setFileValue({name: trackedValue, legacy: trackedValue !== ""});
             } else {
                 setFileValue(trackedValue);
             }
+        } else if(parameter_type === "FileMultiple"){
+            setFileMultValue(trackedValue);
         }else if(parameter_type === "Date"){
             setDateValue(dayjs(trackedValue));
             onChange(name, trackedValue, "");
@@ -104,7 +115,15 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
             console.log("hit an unknown parameter type")
         }
     }, [default_value, parameter_type, name]);
-    
+    const onChangeTextChooseOneCustom = (name, newValue, error) => {
+        setChooseOneCustomValue(newValue);
+        if(newValue === ""){
+            onChange(name, value, error);
+        } else {
+            onChange(name, newValue, error);
+        }
+
+    }
     const onChangeValue = (evt) => {
         setValue(evt.target.value);
         onChange(name, evt.target.value, false);
@@ -214,13 +233,19 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
         setDictSelectOptionsChoice(dictSelectOptionsInitial[0]);
     }
     const onChangeDate = (date) => {
-        setDateValue(dayjs(date))
-        onChange(name, date.toISOString().slice(0,10), "");
+        try {
+            let newDayjsDate = dayjs(date);
+            let newDayString = date.toISOString().slice(0,10);
+            setDateValue(newDayjsDate);
+            onChange(name, newDayString, "");
+        }catch(error){
+            snackActions.warning("invalid date")
+            console.error("invalid date", date);
+        }
     }
     const toggleSwitchValue = (evt) => {
-        let newVal = !value;
-        setValue(newVal);
-        onChange(name, newVal, false);
+        setValue(evt.target.checked);
+        onChange(name, evt.target.checked, false);
     }
     const addNewArrayValue = () => {
         const newArray = [...arrayValue, ""];
@@ -237,12 +262,18 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
         let values = [...arrayValue];
         if(value.includes("\n")){
             let new_values = value.split("\n");
-            values = [...values, ...new_values.slice(1)];
-            values[index] = values[index] + new_values[0];
+            if(values[index] === ""){
+                values = [...values.slice(0, index+1), ...new_values.slice(1), ...values.slice(index+1)];
+                values[index] = values[index] + new_values[0];
+            } else if(values[index] === new_values[0]){
+                values = [...values.slice(0, index+1), ...new_values.slice(1), ...values.slice(index+1)];
+            } else {
+                new_values[0] = new_values[0].slice(values[index].length)
+                values = [...values.slice(0, index+1), ...new_values, ...values.slice(index+1)];
+            }
         }else{
             values[index] = value;
         }
-        
         setArrayValue(values);
         onChange(name, values, false);
     }
@@ -291,6 +322,23 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
                         </Grid>
                     </LocalizationProvider>
                 );
+            case "FileMultiple":
+                return (
+                    <>
+                        <Button variant="contained" component="label">
+                            Select Files
+                            <input onChange={onFileMultChange} type="file" hidden multiple />
+                        </Button>
+                        { fileMultValue.length > 0 &&
+                            fileMultValue?.map((f, i) => (
+                                <div key={i}>
+                                    {typeof f === "string" && <MythicFileContext agent_file_id={f} />}
+                                    {typeof f !== "string" && (f.name)}
+                                </div>
+                            ))
+                        }
+                    </>
+                )
             case "File":
                 return (
                     <>
@@ -319,6 +367,34 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
                         </Select>
                     </FormControl>
                 );
+            case "ChooseOneCustom":
+                return (
+                    <React.Fragment>
+                        <div style={{width: "100%", display: "flex", alignItems: "center"}}>
+                            <FormControl style={{}}>
+                                <Select
+                                    native
+                                    multiple={false}
+                                    disabled={chooseOneCustomValue !== ""}
+                                    value={value}
+                                    onChange={onChangeValue}
+                                    input={<Input />}
+                                >
+                                    {
+                                        chooseOptions.map((opt, i) => (
+                                            <option key={name + i} value={opt}>{opt}</option>
+                                        ))
+                                    }
+                                </Select>
+                            </FormControl>
+                            OR
+                            <MythicTextField name={name} required={required} placeholder={"Custom Value"} value={chooseOneCustomValue} multiline={true} maxRows={5}
+                                             onChange={onChangeTextChooseOneCustom} display="inline-block"
+                            />
+                        </div>
+
+                    </React.Fragment>
+                )
             case "ChooseMultiple":
                 return (
                     <FormControl>
@@ -338,17 +414,19 @@ export function CreatePayloadParameter({onChange, parameter_type, default_value,
                 );
             case "Array":
                 return (
-                    <TableContainer component={Paper} className="mythicElement">
+                    <TableContainer >
                         <Table size="small" style={{tableLayout: "fixed", maxWidth: "100%", "overflow": "auto"}}>
                             <TableBody>
                                 {arrayValue.map( (a, i) => (
-                                    <TableRow key={'array' + name + i} >
-                                        <MythicStyledTableCell style={{width: "3rem"}}>
-                                            <IconButton onClick={(e) => {removeArrayValue(i)}} size="large"><DeleteIcon color="error" /> </IconButton>
+                                    <TableRow key={'array' + name + i} style={{}} >
+                                        <MythicStyledTableCell style={{width: "2rem"}}>
+                                            <DeleteIcon onClick={(e) => {removeArrayValue(i)}} color="error"
+                                                        style={{cursor: "pointer"}}
+                                            />
                                         </MythicStyledTableCell>
                                         <MythicStyledTableCell>
                                             <MythicTextField required={required} fullWidth={true} placeholder={""} value={a} multiline={true}
-                                                onChange={(n,v,e) => onChangeArrayText(v, e, i)} display="inline-block"
+                                                onChange={(n,v,e) => onChangeArrayText(v, e, i)} display="inline-block" autoFocus={a === ""}
                                                 validate={testParameterValues} errorText={"Must match: " + verifier_regex}
                                             />
                                         </MythicStyledTableCell>

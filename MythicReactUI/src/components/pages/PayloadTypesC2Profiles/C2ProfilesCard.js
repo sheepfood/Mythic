@@ -1,6 +1,4 @@
 import React from 'react';
-import { styled } from '@mui/material/styles';
-import Card from '@mui/material/Card';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import {C2ProfileBuildDialog} from './C2ProfileBuildDialog';
@@ -34,6 +32,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import TableRow from '@mui/material/TableRow';
 import MythicTableCell from "../../MythicComponents/MythicTableCell";
+import {MythicStyledTooltip} from "../../MythicComponents/MythicStyledTooltip";
 
 
 const toggleDeleteStatus = gql`
@@ -53,8 +52,8 @@ mutation StartStopProfile($id: Int!, $action: String) {
 }
 `;
 const setProfileConfigMutation = gql`
-mutation setProfileConfiguration($id: Int!, $file_path: String!, $data: String!) {
-  uploadContainerFile(id: $id, file_path: $file_path, data: $data) {
+mutation setProfileConfiguration($container_name: String!, $file_path: String!, $data: String!) {
+  containerWriteFile(container_name: $container_name, file_path: $file_path, data: $data) {
     status
     error
     filename
@@ -78,19 +77,24 @@ export function C2ProfilesRow({service, showDeleted}) {
 
         setDropdownOpen(false);
     };
+    const [alreadyRunningStartStop, setAlreadyRunningStartStop] = React.useState(false);
     const [startStopProfile] = useMutation(startStopProfileMutation, {
-        update: (cache, {data}) => {
-
-        },
         onError: data => {
             console.error(data);
         },
         onCompleted: data => {
+            setAlreadyRunningStartStop(false);
+            if(data.startStopProfile.output.length === 0){
+                snackActions.info("No output from container");
+                return;
+            }
             setOutput(data.startStopProfile.output);
             setOpenProfileStartStopDialog(true);
+
         }
     });
     const onStartStopProfile = () => {
+        setAlreadyRunningStartStop(true);
         if(service.running){
             snackActions.info("Submitting stop task. Waiting 3s for output ..." );
         }else{
@@ -112,16 +116,16 @@ export function C2ProfilesRow({service, showDeleted}) {
         },
         onCompleted: data => {
             //console.log(data);
-            if(data.uploadContainerFile.status === "success"){
+            if(data.containerWriteFile.status === "success"){
                 snackActions.success("Updated file");
             }else{
-                snackActions.error("Error updating: " + data.uploadContainerFile.error );
+                snackActions.error("Error updating: " + data.containerWriteFile.error );
             }
         }
     });
     const onConfigSubmit = (content) => {
         //console.log(content)
-        configSubmit({variables: {id: service.id, file_path: "config.json", data: content}});
+        configSubmit({variables: {container_name: service.name, file_path: "config.json", data: content}});
     }
     const [openDelete, setOpenDeleteDialog] = React.useState(false);
     const [updateDeleted] = useMutation(toggleDeleteStatus, {
@@ -159,15 +163,15 @@ export function C2ProfilesRow({service, showDeleted}) {
                 </MythicTableCell>
                 <MythicTableCell>
                     {service.is_p2p ?
-                        (<FontAwesomeIcon icon={faLink}  style={{width: "80", height: "80", padding: "10px"}} />)
+                        (<FontAwesomeIcon icon={faLink}  style={{width: "80px", height: "80px", padding: "10px"}} />)
                         :
-                        (<WifiIcon style={{width: "80", height: "80", padding: "10px"}}/>)
+                        (<WifiIcon style={{width: "80px", height: "80px", padding: "10px"}}/>)
                     }
                 </MythicTableCell>
                 <MythicTableCell>
                     {service.name}
                 </MythicTableCell>
-                <MythicTableCell>C2</MythicTableCell>
+                <MythicTableCell>C2 Profile</MythicTableCell>
                 <MythicTableCell>
                     <Typography variant="body1" component="p">
                         <b>Author:</b> {service.author}
@@ -209,9 +213,16 @@ export function C2ProfilesRow({service, showDeleted}) {
                         service.running ?
                             (
                                 <ButtonGroup variant="contained" color={"secondary"} ref={dropdownAnchorRef} aria-label="split button" >
-                                    <Button size="small" color={service.running ? "success" : "error"} onClick={onStartStopProfile} style={{width: "100%"}}>Stop Profile</Button>
+                                    <Button size="small"
+                                            disabled={alreadyRunningStartStop}
+                                            color={service.running ? "success" : "error"}
+                                            onClick={onStartStopProfile}
+                                            style={{width: "100%"}}>
+                                        {alreadyRunningStartStop ? "Waiting..." : "Stop Profile"}
+                                    </Button>
                                     <Button
                                         size="small"
+                                        disabled={alreadyRunningStartStop}
                                         aria-controls={dropdownOpen ? 'split-button-menu' : undefined}
                                         aria-expanded={dropdownOpen ? 'true' : undefined}
                                         aria-label="select merge strategy"
@@ -227,9 +238,16 @@ export function C2ProfilesRow({service, showDeleted}) {
                             (
                                 service.is_p2p ? null : (
                                     <ButtonGroup size="small" variant="contained" ref={dropdownAnchorRef} aria-label="split button" color={service.running ? "success" : "error"} >
-                                        <Button size="small" onClick={onStartStopProfile} color={service.running ? "success" : "error"} style={{width: "100%"}}>Start Profile</Button>
+                                        <Button size="small"
+                                                disabled={alreadyRunningStartStop}
+                                                onClick={onStartStopProfile}
+                                                color={service.running ? "success" : "error"}
+                                                style={{width: "100%"}}>
+                                            {alreadyRunningStartStop ? "Waiting..." : "Start Profile"}
+                                        </Button>
                                         <Button
                                             size="small"
+                                                disabled={alreadyRunningStartStop}
                                             aria-controls={dropdownOpen ? 'split-button-menu' : undefined}
                                             aria-expanded={dropdownOpen ? 'true' : undefined}
                                             aria-label="select merge strategy"
@@ -245,36 +263,41 @@ export function C2ProfilesRow({service, showDeleted}) {
                             )
                     ) : null}
                     <br/>
-                    <IconButton
-                        color={"secondary"}
-                        href={"/docs/c2-profiles/" + service.name.toLowerCase()}
-                        target="_blank"
-                        size="large">
-                        <MenuBookIcon />
-                    </IconButton>
-                    <IconButton
-                        color={"secondary"}
-                        onClick={()=>{setOpenBuildingDialog(true);}}
-                        size="large">
-                        <BuildIcon />
-                    </IconButton>
-
-
-                    <IconButton
-                        onClick={() => {setOpenProfileSavedInstancesDialog(true);}}
-                        color={"success"}
-                        size="large">
-                        <SaveIcon />
-                    </IconButton>
-
-                    {service.container_running &&
+                    <MythicStyledTooltip title={"Documentation"}>
                         <IconButton
                             color={"secondary"}
+                            href={"/docs/c2-profiles/" + service.name.toLowerCase()}
+                            target="_blank"
+                            size="large">
+                            <MenuBookIcon />
+                        </IconButton>
+                    </MythicStyledTooltip>
+                    <MythicStyledTooltip title={"Build Parameters"}>
+                        <IconButton
+                            color={"secondary"}
+                            onClick={()=>{setOpenBuildingDialog(true);}}
+                            size="large">
+                            <BuildIcon />
+                        </IconButton>
+                    </MythicStyledTooltip>
+                    <MythicStyledTooltip title={"Save/Edit Instances for Building"}>
+                        <IconButton
+                            onClick={() => {setOpenProfileSavedInstancesDialog(true);}}
+                            color={"success"}
+                            size="large">
+                            <SaveIcon />
+                        </IconButton>
+                    </MythicStyledTooltip>
+                    <MythicStyledTooltip title={service.container_running ? "View Files" : "Unable to view files because container is offline"}>
+                        <IconButton
+                            color={"secondary"}
+                            disabled={!service.container_running}
                             onClick={()=>{setOpenListFilesDialog(true);}}
                             size="large">
                             <AttachFileIcon />
                         </IconButton>
-                    }
+                    </MythicStyledTooltip>
+
                     <Popper open={dropdownOpen} anchorEl={dropdownAnchorRef.current} role={undefined} transition disablePortal style={{zIndex: 4}}>
                         {({ TransitionProps, placement }) => (
                             <Grow
@@ -289,7 +312,7 @@ export function C2ProfilesRow({service, showDeleted}) {
                                             <MenuItem key={"dropdownprofile" + service.id + "menu1"} onClick={()=>{setOpenProfileConfigDialog(true);}}>View/Edit Config</MenuItem>
                                             {
                                                 service.running ?
-                                                    (<MenuItem key={"dropdownprofile" + service.id + "menu2"} onClick={()=>{setOpenProfileDialog(true);}}>View Stdout/Stderr</MenuItem>) : (null)
+                                                    (<MenuItem key={"dropdownprofile" + service.id + "menu2"} onClick={()=>{setOpenProfileDialog(true);}}>View Stdout/Stderr</MenuItem>) : null
                                             }
                                         </MenuList>
 
@@ -303,15 +326,15 @@ export function C2ProfilesRow({service, showDeleted}) {
                     <MythicDialog fullWidth={true} maxWidth="lg" open={openBuildingDialog}
                                   onClose={()=>{setOpenBuildingDialog(false);}}
                                   innerDialog={<C2ProfileBuildDialog {...service} onClose={()=>{setOpenBuildingDialog(false);}}
-                                                                     payload_name={service.name} />}
+                                                                     container_name={service.name} />}
                     />
                 }
                 {openProfileStartStopDialog &&
-                    <MythicDialog fullWidth={true} maxWidth="lg" open={openProfileStartStopDialog}
+                    <MythicDialog fullWidth={true} maxWidth="xl" open={openProfileStartStopDialog}
                                   onClose={()=>{setOpenProfileStartStopDialog(false);}}
                                   innerDialog={<C2ProfileStartStopOutputDialog output={output}
                                                                                onClose={()=>{setOpenProfileStartStopDialog(false);}}
-                                                                               payload_name={service.name} />}
+                                                                               container_name={service.name} />}
                     />
                 }
                 {openDelete &&
@@ -321,9 +344,9 @@ export function C2ProfilesRow({service, showDeleted}) {
                                          acceptColor={service.deleted ? "success": "error"} />
                 }
                 {openProfileDialog &&
-                    <MythicDialog fullWidth={true} maxWidth="lg" open={openProfileDialog}
+                    <MythicDialog fullWidth={true} maxWidth="xl"  open={openProfileDialog}
                                   onClose={()=>{setOpenProfileDialog(false);}}
-                                  innerDialog={<C2ProfileOutputDialog {...service}  payload_name={service.name}
+                                  innerDialog={<C2ProfileOutputDialog {...service}  container_name={service.name}
                                                                       onClose={()=>{setOpenProfileDialog(false);}}
                                                                       profile_id={service.id} />}
                     />
@@ -333,7 +356,7 @@ export function C2ProfilesRow({service, showDeleted}) {
                                   onClose={()=>{setOpenProfileConfigDialog(false);}}
                                   innerDialog={<C2ProfileConfigDialog filename={"config.json"}
                                                                       onConfigSubmit={onConfigSubmit}
-                                                                      payload_name={service.name}
+                                                                      container_name={service.name}
                                                                       onClose={()=>{setOpenProfileConfigDialog(false);}}
                                                                       profile_id={service.id} />}
                     />
@@ -346,9 +369,9 @@ export function C2ProfilesRow({service, showDeleted}) {
                     />
                 }
                 {openListFilesDialog &&
-                    <MythicDialog fullWidth={true} maxWidth="md" open={openListFilesDialog}
+                    <MythicDialog fullWidth={true} maxWidth="lg" open={openListFilesDialog}
                                   onClose={()=>{setOpenListFilesDialog(false);}}
-                                  innerDialog={<C2ProfileListFilesDialog {...service} onClose={()=>{setOpenListFilesDialog(false);}} />}
+                                  innerDialog={<C2ProfileListFilesDialog container_name={service.name} {...service} onClose={()=>{setOpenListFilesDialog(false);}} />}
                     />
                 }
             </TableRow>

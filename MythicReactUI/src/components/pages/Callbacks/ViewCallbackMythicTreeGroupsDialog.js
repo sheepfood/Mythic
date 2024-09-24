@@ -1,6 +1,7 @@
 import React from 'react';
 import TableRow from '@mui/material/TableRow';
 import Table from '@mui/material/Table';
+import TableCell from '@mui/material/TableCell';
 import TableBody from '@mui/material/TableBody';
 import TableHead from '@mui/material/TableHead';
 import {useQuery, gql} from '@apollo/client';
@@ -18,11 +19,15 @@ import Paper from '@mui/material/Paper';
 import {IconButton, Typography} from '@mui/material';
 import {MythicDialog} from "../../MythicComponents/MythicDialog";
 import LinearProgress from '@mui/material/LinearProgress';
+import { Backdrop } from '@mui/material';
+import {CircularProgress} from '@mui/material';
+import {snackActions} from "../../utilities/Snackbar";
+import {MythicAgentSVGIcon} from "../../MythicComponents/MythicAgentSVGIcon";
 
 
 const getCallbackMythicTreeGroups = gql`
 query getCallbackMythicTreeGroups($group_name: [String!]!) {
-  callback(where: {mythictree_groups: {_contains: $group_name}}) {
+  callback(where: {mythictree_groups: {_contains: $group_name}}, order_by: {id: asc}) {
     display_id
     user
     host
@@ -41,7 +46,7 @@ query getCallbackMythicTreeGroups($group_name: [String!]!) {
 `;
 const getAllCallbackMythicTreeGroups = gql`
 query getCallbackMythicTreeGroups {
-  callback {
+  callback(order_by: {id: asc}) {
     display_id
     user
     host
@@ -61,12 +66,17 @@ query getCallbackMythicTreeGroups {
 `;
 export function ViewCallbackMythicTreeGroupsDialog(props){
     const theme = useTheme();
+    const [backdropOpen, setBackdropOpen] = React.useState(true);
     const [groups, setGroups] = React.useState([]);
     const [openViewAllCallbacksDialog, setOpenViewAllCallbacksDialog] = React.useState(false);
+    React.useEffect( () => {
+        snackActions.info("Loading callbacks...");
+    }, []);
     useQuery(getCallbackMythicTreeGroups, {
         fetchPolicy: "no-cache",
         variables: {group_name: [props.group_name]},
         onCompleted: data => {
+
             const groupData = data.callback.map( c => {
                 try{
                     let cIP = JSON.parse(c.ip);
@@ -80,8 +90,12 @@ export function ViewCallbackMythicTreeGroupsDialog(props){
                 }
             })
             setGroups(groupData);
+            setBackdropOpen(false);
         }
         });
+    React.useLayoutEffect(() => {
+        snackActions.clearAll();
+    }, [groups]);
     return (
         <React.Fragment>
           <DialogTitle id="form-dialog-title" style={{display: "flex", justifyContent: "space-between"}}>
@@ -93,18 +107,21 @@ export function ViewCallbackMythicTreeGroupsDialog(props){
             <div style={{paddingLeft: "20px"}}>
                 All of these callbacks are contributing data that's aggregated together for the "{props.group_name}" group.
             </div>
-          <DialogContent dividers={true} style={{paddingLeft: 0, paddingRight: 0}}>
-            <Table size="small" aria-label="details" style={{ "overflowWrap": "break-word", width: "100%"}}>
+          <DialogContent dividers={true} style={{padding: 0}}>
+              <Backdrop open={backdropOpen} style={{zIndex: 2, position: "absolute"}} invisible={false}>
+                  <CircularProgress color="inherit" />
+              </Backdrop>
+            <Table stickyHeader={true} size="small" style={{ "overflowWrap": "break-word", width: "100%"}}>
                 <TableHead>
                     <TableRow>
-                        <MythicStyledTableCell></MythicStyledTableCell>
-                        <MythicStyledTableCell>Callback</MythicStyledTableCell>
-                        <MythicStyledTableCell>User</MythicStyledTableCell>
-                        <MythicStyledTableCell>Host</MythicStyledTableCell>
-                        <MythicStyledTableCell>Domain</MythicStyledTableCell>
-                        <MythicStyledTableCell>IP</MythicStyledTableCell>
-                        <MythicStyledTableCell>PID</MythicStyledTableCell>
-                        <MythicStyledTableCell>Description</MythicStyledTableCell>
+                        <TableCell></TableCell>
+                        <TableCell>Callback</TableCell>
+                        <TableCell>User</TableCell>
+                        <TableCell>Host</TableCell>
+                        <TableCell>Domain</TableCell>
+                        <TableCell>IP</TableCell>
+                        <TableCell>PID</TableCell>
+                        <TableCell>Description</TableCell>
                     </TableRow>
 
                 </TableHead>
@@ -122,10 +139,7 @@ export function ViewCallbackMythicTreeGroupsDialog(props){
                                     </MythicStyledTooltip>
                                 }
                                 <MythicStyledTooltip title={a.payload.payloadtype.name}>
-                                    <img
-                                        style={{width: "35px", height: "35px"}}
-                                        src={"/static/" + a.payload.payloadtype.name + ".svg"}
-                                    />
+                                    <MythicAgentSVGIcon payload_type={a.payload.payloadtype.name} style={{width: "35px", height: "35px"}} />
                                 </MythicStyledTooltip>
                             </MythicStyledTableCell>
 
@@ -254,10 +268,7 @@ export function ViewAllCallbackMythicTreeGroupsDialog(props){
                                                 </MythicStyledTooltip>
                                             }
                                             <MythicStyledTooltip title={a.payload.payloadtype.name}>
-                                                <img
-                                                    style={{width: "35px", height: "35px"}}
-                                                    src={"/static/" + a.payload.payloadtype.name + ".svg"}
-                                                />
+                                                <MythicAgentSVGIcon payload_type={a.payload.payloadtype.name} style={{width: "35px", height: "35px"}} />
                                             </MythicStyledTooltip>
                                         </MythicStyledTableCell>
 

@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"fmt"
 	"github.com/MythicMeta/Mythic_CLI/cmd/internal"
 	"github.com/spf13/cobra"
+	"log"
 	"os"
 )
 
@@ -23,7 +23,7 @@ func init() {
 		"force",
 		"f",
 		false,
-		`Force installing from GitHub and don't prompt to overwrite files if an older version is already installed'`,
+		`Force installing from GitHub and don't prompt to overwrite files if an older version is already installed`,
 	)
 	installMythicSyncGitHubCmd.Flags().StringVarP(
 		&branch,
@@ -37,7 +37,7 @@ func init() {
 func installMythicSyncGitHub(cmd *cobra.Command, args []string) {
 	if len(args) == 0 {
 		if err := internal.InstallMythicSync("https://github.com/GhostManager/mythic_sync", ""); err != nil {
-			fmt.Printf("[-] Failed to install service: %v\n", err)
+			log.Printf("[-] Failed to install service: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
@@ -45,10 +45,10 @@ func installMythicSyncGitHub(cmd *cobra.Command, args []string) {
 			branch = args[1]
 		}
 		if err := internal.InstallMythicSync(args[0], branch); err != nil {
-			fmt.Printf("[-] Failed to install service: %v\n", err)
+			log.Printf("[-] Failed to install service: %v\n", err)
 			os.Exit(1)
 		} else {
-			fmt.Printf("[+] Successfully installed service!\n")
+			log.Printf("[+] Successfully installed service!\n")
 		}
 	}
 

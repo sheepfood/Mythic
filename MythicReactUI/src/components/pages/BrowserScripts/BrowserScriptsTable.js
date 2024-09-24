@@ -20,27 +20,28 @@ export function BrowserScriptsTable(props){
     const [openNewScriptDialog, setOpenNewScriptDialog] = React.useState(false);
     return (
         <React.Fragment>
-            <Paper elevation={5} style={{backgroundColor: theme.pageHeader.main, color: theme.pageHeaderText.main, marginBottom: "5px", marginTop: "10px", marginRight: "5px"}} variant={"elevation"}>
+            <Paper elevation={5} style={{backgroundColor: theme.pageHeader.main, color: theme.pageHeaderText.main,
+                marginBottom: "5px", marginLeft: "5px", marginRight: "5px"}} variant={"elevation"}>
                 <Typography variant="h3" style={{textAlign: "left", display: "inline-block", marginLeft: "20px"}}>
                     Browser Scripts
                 </Typography>
                 <Button size="small" onClick={() => setOpenNewScriptDialog(true)} style={{float: "right", marginTop: "10px", marginRight: "30px"}} startIcon={<AddCircleOutlineOutlinedIcon/>} color="primary" variant="contained">New Script</Button>
                 {openNewScriptDialog ? (   
-                    <MythicDialog fullWidth={true} maxWidth="md" open={openNewScriptDialog} 
+                    <MythicDialog fullWidth={true} maxWidth="xl" open={openNewScriptDialog}
                         onClose={()=>{setOpenNewScriptDialog(false);}} 
                         innerDialog={
                             <EditScriptDialog me={props.me} onClose={()=>{setOpenNewScriptDialog(false);}} title="Create New Browser Script" new={true} onSubmitEdit={props.onSubmitNew} />
                         } />    
-                    ) : (null)
+                    ) : null
                 }
             </Paper>
-            <TableContainer component={Paper} className="mythicElement" style={{maxHeight: "90%"}}>
-            <Table size="small" style={{"tableLayout": "fixed", "maxWidth": "100%", "overflow": "scroll"}}>
+            <TableContainer className="mythicElement" style={{maxHeight: "90%"}}>
+            <Table stickyHeader={true} size="small" style={{"tableLayout": "fixed", "maxWidth": "100%", "overflow": "scroll"}}>
                 <TableHead>
                     <TableRow>
                         <TableCell style={{width: "3rem"}}>Edit</TableCell>
                         <TableCell style={{width: "5rem"}}>Active</TableCell>
-                        <TableCell style={{width: "15rem"}}>Payload</TableCell>
+                        <TableCell style={{width: "5rem"}}>Payload</TableCell>
                         <TableCell style={{width: "20rem"}}>Command</TableCell>
                         <TableCell style={{width: "12rem"}}> Author</TableCell>
                         <TableCell style={{textAlign: "left"}}>User Modified?</TableCell>

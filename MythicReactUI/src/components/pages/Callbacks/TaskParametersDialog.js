@@ -10,7 +10,6 @@ import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
-import Paper from '@mui/material/Paper';
 import {TaskParametersDialogRow} from './TaskParametersDialogRow';
 import {gql, useLazyQuery, useMutation, useQuery} from '@apollo/client';
 import FormControl from '@mui/material/FormControl';
@@ -20,7 +19,6 @@ import Input from '@mui/material/Input';
 import {UploadTaskFile} from '../../MythicComponents/MythicFileUpload';
 import {Backdrop, CircularProgress} from '@mui/material';
 import Divider from '@mui/material/Divider';
-import {useTheme} from '@mui/material/styles';
 import {b64DecodeUnicode} from './ResponseDisplay';
 import {snackActions} from "../../utilities/Snackbar";
 
@@ -243,6 +241,7 @@ query getCommandQuery($id: Int!){
       choices
       choices_are_all_commands
       choices_are_loaded_commands
+      limit_credentials_by_type
       default_value
       description
       id
@@ -273,8 +272,20 @@ query getCredentialsQuery($operation_id: Int!){
     }
 }
 `;
+
+export const commandInParsedParameters = (cmd, parsedParameters) =>{
+    if(cmd.name in parsedParameters){
+        return cmd.name
+    }
+    if(cmd.cli_name in parsedParameters){
+        return cmd.cli_name
+    }
+    if(cmd.display_name in parsedParameters){
+        return cmd.display_name
+    }
+    return undefined
+}
 export function TaskParametersDialog(props) {
-    const theme = useTheme();
     const [backdropOpen, setBackdropOpen] = React.useState(false);
     const [commandInfo, setCommandInfo] = useState({});
     const [parameterGroups, setParameterGroups] = useState([]);
@@ -380,6 +391,9 @@ export function TaskParametersDialog(props) {
     }
     useEffect( () => {
         //console.log("use effect triggered")
+        if(!props.command.parsedParameters){
+            props.command.parsedParameters = {};
+        }
         const getLinkInfoFromAgentConnect = (choices) => {
             if(choices.length > 0){
                 const c2profileparameters = choices[0]["payloads"][0]["c2info"][0].parameters.reduce( (prev, opt) => {
@@ -432,10 +446,12 @@ export function TaskParametersDialog(props) {
                     return [...prev];
                 }
                 //console.log(props.command);
+                let parsedParameterName = commandInParsedParameters(cmd, props.command.parsedParameters);
                 switch(cmd.type){
                     case "Boolean":
-                        if(cmd.name in props.command.parsedParameters){
-                            return [...prev, {...cmd, value: props.command.parsedParameters[cmd.name]}];
+
+                        if(parsedParameterName){
+                            return [...prev, {...cmd, value: props.command.parsedParameters[parsedParameterName]}];
                         }
                         else if(cmd.default_value){
                             return [...prev, {...cmd, value: cmd.default_value.toLowerCase() === "true"}];
@@ -443,34 +459,40 @@ export function TaskParametersDialog(props) {
                             return [...prev, {...cmd, value: false}];
                         }
                     case "String":
-                        if(cmd.name in props.command.parsedParameters){
-                            return [...prev, {...cmd, value: props.command.parsedParameters[cmd.name]}];
+                        if(parsedParameterName){
+                            return [...prev, {...cmd, value: props.command.parsedParameters[parsedParameterName]}];
                         }else{
                             return [...prev, {...cmd, value: cmd.default_value}];
                         }                      
                     case "Number":
-                        if(cmd.name in props.command.parsedParameters){
-                            return [...prev, {...cmd, value: props.command.parsedParameters[cmd.name]}];
+                        if(parsedParameterName){
+                            return [...prev, {...cmd, value: props.command.parsedParameters[parsedParameterName]}];
                         }else{
                             return [...prev, {...cmd, value: cmd.default_value === "" ? 0 : parseInt(cmd.default_value)}];
                         }
                     case "Array":
-                        if(cmd.name in props.command.parsedParameters){
-                            return [...prev, {...cmd, value: props.command.parsedParameters[cmd.name]}];
+                        if(parsedParameterName){
+                            return [...prev, {...cmd, value: props.command.parsedParameters[parsedParameterName]}];
                         }else if(cmd.default_value.length > 0){
                             return [...prev, {...cmd, value: JSON.parse(cmd.default_value)}];
                         }else{
                             return [...prev, {...cmd, value: []}];
                         }
                     case "TypedArray":
-                        if(cmd.name in props.command.parsedParameters){
-                            return [...prev, {...cmd, value: props.command.parsedParameters[cmd.name]}];
+                        if(parsedParameterName){
+                            return [...prev, {...cmd, value: props.command.parsedParameters[parsedParameterName]}];
                         }else if(cmd.default_value.length > 0){
-                            return [...prev, {...cmd, value: JSON.parse(cmd.default_value)}];
+                            try {
+                                return [...prev, {...cmd, value: JSON.parse(cmd.default_value)}];
+                            }catch(error){
+                                return [...prev, {...cmd, value: [[cmd.default_value, ""]] }];
+                            }
+
                         }else{
                             return [...prev, {...cmd, value: []}];
                         }
                     case "ChooseOne":
+                    case "ChooseOneCustom":
                     case "ChooseMultiple":
                         let choices = cmd.choices;
                         let defaultV = cmd.default_value;
@@ -534,19 +556,36 @@ export function TaskParametersDialog(props) {
                                 else{defaultV = choices[0];}
                             }
                         }
-                        if(cmd.name in props.command.parsedParameters){
-                            return [...prev, {...cmd, choices: choices, value: props.command.parsedParameters[cmd.name]}];
+                        if(parsedParameterName){
+                            return [...prev, {...cmd, choices: choices, value: props.command.parsedParameters[parsedParameterName]}];
                         }else{
                             return [...prev, {...cmd, choices: choices, default_value: defaultV, value: defaultV}];
                         }
                     case "File":
-                        return [...prev, {...cmd, value: {} }];                   
+                        return [...prev, {...cmd, value: {} }];
+                    case "FileMultiple":
+                        return [...prev, {...cmd, value: []}];
                     case "CredentialJson":
-                        if (loadedCredentialsLoading.credential.length > 0){
-                            if(cmd.value === "" || (typeof(cmd.value) === Object && Object.keys(cmd.value).length === 0) || cmd.value === undefined){
-                                cmd.value = loadedCredentialsLoading.credential[0];
+                        let credentialChoices = loadedCredentialsLoading.credential;
+                        if(credentialChoices === undefined || credentialChoices === null){
+                            credentialChoices = [];
+                        }
+                        if(cmd.limit_credentials_by_type?.length > 0){
+                            credentialChoices = credentialChoices.reduce( (existingCreds, curCred) => {
+                                if(cmd.limit_credentials_by_type.includes(curCred.type)){
+                                    return [...existingCreds, curCred];
+                                }
+                                return [...existingCreds];
+                            }, []);
+                        }
+                        if (credentialChoices.length > 0){
+                            if(parsedParameterName){
+                                cmd.value = props.command.parsedParameters[parsedParameterName];
                             }
-                            return [...prev, {...cmd, choices: loadedCredentialsLoading.credential}];
+                            else if(cmd.value === "" || (typeof(cmd.value) === Object && Object.keys(cmd.value).length === 0) || cmd.value === undefined){
+                                cmd.value = credentialChoices[0];
+                            }
+                            return [...prev, {...cmd, choices: credentialChoices}];
                         }else{
                             return [...prev, {...cmd, value: {}, choices: []}];
                         }
@@ -795,6 +834,7 @@ export function TaskParametersDialog(props) {
                 case "Boolean":
                 case "Number":
                 case "ChooseOne":
+                case "ChooseOneCustom":
                 case "ChooseMultiple":
                 case "PayloadList":
                 case "Array":
@@ -811,15 +851,36 @@ export function TaskParametersDialog(props) {
                     collapsedParameters[param.name] = param.value;
                     break
                 case "File":
-                    setBackdropOpen(true);
                     const newUUID = await UploadTaskFile(param.value, "Uploaded as part of tasking");
                     if(newUUID){
-                        newFileUUIDs.push(newUUID);
-                        collapsedParameters[param.name] = newUUID;
+                        if(newUUID !== "Missing file in form"){
+                            newFileUUIDs.push(newUUID);
+                            collapsedParameters[param.name] = newUUID;
+                        }
                     }else{
-                        setBackdropOpen(false);
                         return;
                     }
+                    break;
+                case "FileMultiple":
+                    let fileIDs = [];
+                    for(let i = 0; i < param.value.length; i++){
+                        if(typeof param.value[i] === "string"){
+                            fileIDs.push(param.value[i]);
+                            continue
+                        }
+                        const newUUID = await UploadTaskFile(param.value[i], "Uploaded as part of tasking");
+                        if(newUUID){
+                            if(newUUID !== "Missing file in form"){
+                                newFileUUIDs.push(newUUID);
+                                fileIDs.push(newUUID);
+                            } else {
+                                snackActions.warning("Failed to upload file");
+                            }
+                        } else {
+                            snackActions.warning("Failed to upload file");
+                        }
+                    }
+                    collapsedParameters[param.name] = fileIDs;
                     break;
                 case "CredentialJson":
                     collapsedParameters[param.name] = {
@@ -835,7 +896,7 @@ export function TaskParametersDialog(props) {
             }
         }
         setBackdropOpen(false);
-        props.onSubmit(props.command.cmd, JSON.stringify(collapsedParameters), newFileUUIDs, selectedParameterGroup);
+        props.onSubmit(props.command.cmd, JSON.stringify(collapsedParameters), newFileUUIDs, selectedParameterGroup, props.command?.payload_type?.name);
         
     }
     const onAgentConnectAddNewPayloadOnHost = (host, payload) => {
@@ -846,14 +907,15 @@ export function TaskParametersDialog(props) {
     }
     const onChange = (name, value, error) => {
         //console.log("called props.onChange to update a value for submission, have these parameters: ", [...parameters]);
-        const params = parameters.map( (param) => {
-            if(param.name === name){
-                return {...param, value: value};
-            }else{
-                return {...param};
-            }
+        setParameters((previousState, currentProps) => {
+            return previousState.map( (param) => {
+                if(param.name === name){
+                    return {...param, value: value};
+                }else{
+                    return {...param};
+                }
+            })
         });
-        setParameters(params);
         //console.log("just set new params from props.onChange with a new value: ", [...params])
     }
     const onChangeParameterGroup = (event) => {
@@ -892,7 +954,7 @@ export function TaskParametersDialog(props) {
                     
                 }
             </Typography>
-            <TableContainer component={Paper} elevation={5} className="mythicElement" style={{backgroundColor: theme.tableHover, marginTop: "10px"}}> 
+            <TableContainer>
                 <Table size="small" style={{"tableLayout": "fixed", "maxWidth": "100%", "overflow": "scroll"}}>
                     <TableHead>
                         <TableRow>

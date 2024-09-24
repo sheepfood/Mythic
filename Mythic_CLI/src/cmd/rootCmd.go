@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/MythicMeta/Mythic_CLI/cmd/config"
 	"github.com/MythicMeta/Mythic_CLI/cmd/internal"
+	"github.com/MythicMeta/Mythic_CLI/cmd/manager"
 	"os"
 )
 
@@ -20,6 +21,10 @@ Commands are grouped by their use and all support '-h' for help.
 For a list of available services to install, check out: https://mythicmeta.github.io/overview/`,
 }
 
+var force bool
+var branch string
+var keepVolume bool
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
@@ -30,5 +35,7 @@ func Execute() {
 
 func init() {
 	// Create or parse the Docker ``.env`` file
+	config.Initialize()
+	manager.Initialize()
 	internal.Initialize()
 }

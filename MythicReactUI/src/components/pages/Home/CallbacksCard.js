@@ -19,6 +19,8 @@ import {
 import MythicTableCell from "../../MythicComponents/MythicTableCell";
 import {useNavigate} from 'react-router-dom';
 import { BarChart } from '@mui/x-charts/BarChart';
+import {getStringSize} from "../Callbacks/ResponseDisplayTable";
+import {toLocalTime} from "../../utilities/Time";
 
 const GetCallbacks = gql`
 query GetCallbacks {
@@ -46,10 +48,8 @@ query GetCallbacks {
     status
     completed
     callback_id
-    is_interactive_task
     command_name
     status_timestamp_preprocessing
-    status_timestamp_processing
   }
   taskartifact {
     base_artifact
@@ -68,6 +68,8 @@ query GetCallbacks {
     id
     deleted
     port_type
+    bytes_sent
+    bytes_received
   }
   callbackgraphedge {
     c2profile {
@@ -104,7 +106,6 @@ function getTaskStatusNormalized (taskStatus) {
     if(status.includes("opsec")){
         return "opsec"
     }
-    console.log(status);
     return "submitted"
 
 
@@ -143,7 +144,7 @@ const errorColors = [
     "#832f0b",
 
 ]
-export function CallbacksCard() {
+export function CallbacksCard({me}) {
     const theme = useTheme();
     const navigate = useNavigate();
     const [active, setActive] = React.useState({"active": 0, "recent": 0, "total": 0});
@@ -185,7 +186,7 @@ export function CallbacksCard() {
             if(search[0] === "*"){
                 search = search.substring(1);
             }
-            navigate("/new/search?searchField=User&search=" + search);
+            navigate("/new/search?tab=callbacks&searchField=User&search=" + search);
         }
 
     }
@@ -193,7 +194,7 @@ export function CallbacksCard() {
         let search = host.split(" ");
         search = search[search.length - 1];
         if(search.length > 0){
-            navigate("/new/search?searchField=Host&search=" + search);
+            navigate("/new/search?tab=callbacks&searchField=Host&search=" + search);
         }
 
     }
@@ -206,10 +207,10 @@ export function CallbacksCard() {
             const newActive = data.callback.reduce( (prev, cur) => {
                 if(!callbackData[cur.id]){
                     callbackData[cur.id] = {...cur,
-                        init_callback: new Date(cur.init_callback + "Z"),
-                        last_checkin: new Date(cur.last_checkin + "Z"),
-                        init_callback_day: new Date(cur.init_callback.substr(0, 10) + "T00:00Z"),
-                        last_checkin_day: new Date(cur.last_checkin.substr(0, 10) + "T00:00Z")}
+                        init_callback: new Date(cur.init_callback + (me?.user?.view_utc_time ? "" : "Z") ),
+                        last_checkin: new Date(cur.last_checkin + (me?.user?.view_utc_time ? "" : "Z")),
+                        init_callback_day: new Date(cur.init_callback + (me?.user?.view_utc_time ? "" : "Z")),
+                        last_checkin_day: new Date(cur.last_checkin + (me?.user?.view_utc_time ? "" : "Z"))}
                 }
                 if(now - callbackData[cur.id].last_checkin <= ONE_HOUR){
                     recent += 1;
@@ -311,7 +312,6 @@ export function CallbacksCard() {
             for (let i = 0; i < c2profileLabels.length; i++) {
                 c2profileAliveOptions.push(c2profileOptions[c2profileLabels[i]].count - c2profileOptions[c2profileLabels[i]].dead);
                 c2ProfileDeadOptions.push(c2profileOptions[c2profileLabels[i]].dead);
-
             }
             // bar char will freak out if series has data but labels is empty
             if(c2profileLabels.length > 0){
@@ -333,7 +333,6 @@ export function CallbacksCard() {
                         ],
                     labels: c2profileLabels});
             }
-
             // process artifact types
             const artifactOptions = data.taskartifact.reduce( (prev, cur) => {
                 if(prev[cur.base_artifact]){
@@ -419,8 +418,13 @@ export function CallbacksCard() {
                 return [...prev, cur.operator.username];
             }, []);
             const taskDayOptions = data.task.reduce( (prev, cur) => {
-                let curDate = new Date(cur.status_timestamp_preprocessing);
-                curDate = curDate.toISOString().substr(0, 10) + "T00:00Z";
+                let curDate = new Date(cur.status_timestamp_preprocessing + (me?.user?.view_utc_time ? "" : "Z"));
+                if(me?.user?.view_utc_time){
+                    curDate = curDate.toDateString();
+                    //curDate = curDate.toISOString().substr(0, 10) + "T00:00";
+                } else {
+                    curDate = curDate.toLocaleDateString();
+                }
                 if(prev[curDate]){
                     prev[curDate][cur.operator.username] = prev[curDate][cur.operator.username] + 1;
                 }else{
@@ -443,8 +447,14 @@ export function CallbacksCard() {
                 let currentOperatorData = [];
                 for (const [key, value] of Object.entries(taskDayOptions)) {
                     if(i === 0){
-                        let taskingDate = new Date(key);
-                        taskDayArrayOptions.push(taskingDate);
+                        let taskingDate = new Date(key );
+                        if(me?.user?.view_utc_time){
+                            taskDayArrayOptions.push(taskingDate);
+                        } else {
+                            taskingDate.setTime(taskingDate.getTime() + (taskingDate.getTimezoneOffset() * 60 * 1000));
+                            taskDayArrayOptions.push(taskingDate);
+                        }
+
                         // sub process active callbacks on this day
                         let callbacksActiveOnThisDay = 0;
                         for(const [callbackID, callbackValues] of Object.entries(callbackData)){
@@ -535,12 +545,11 @@ export function CallbacksCard() {
             // process callback port types
             const callbackPortOptions = data.callbackport.reduce( (prev, cur) => {
                 if(!prev[cur.port_type]){
-                    prev[cur.port_type] = {"total": 0, "active": 0};
+                    prev[cur.port_type] = {"total": 0, "sent": 0, "received": 0};
                 }
                 prev[cur.port_type]["total"] += 1;
-                if(!cur.deleted){
-                    prev[cur.port_type]["active"] += 1;
-                }
+                prev[cur.port_type]["sent"] += cur.bytes_sent;
+                prev[cur.port_type]["received"] += cur.bytes_received;
                 return prev;
             }, {});
             let callbackPortArrayOptions = [];
@@ -552,16 +561,16 @@ export function CallbacksCard() {
                     value: value.total
                 })
                 callbackPortActiveArrayOptions.push({
-                    id: key + " active",
-                    label: key + " active",
-                    value: value.active,
-                    color: theme.palette.success.main,
+                    id: key + " sent",
+                    label: key + " Tx: " + getStringSize({cellData: {"plaintext": String(value.sent)}}),
+                    value: value.sent,
+                    //color: theme.palette.success.main,
                 })
                 callbackPortActiveArrayOptions.push({
-                    id: key + " dead",
-                    label: key + " closed",
-                    value: value.total - value.active,
-                    color: 'rgba(164,164,164,0.07)',
+                    id: key + " received",
+                    label: key + " Rx: " + getStringSize({cellData: {"plaintext": String(value.received)}}),
+                    value: value.received,
+                    //color: 'rgba(164,164,164,0.07)',
                 })
             }
             setCallbackPorts([
@@ -625,7 +634,7 @@ export function CallbacksCard() {
                                leftColumnTitle={"Host"} rightColumnTitle={"Tasks"} />
             </div>
             <div style={{}}>
-                <LineTimeMultiChartCard data={tasksPerDay} />
+                <LineTimeMultiChartCard data={tasksPerDay} view_utc_time={me?.user?.view_utc_time} />
             </div>
             <div style={{display: "flex"}}>
                 <PieChartCard data={taskSuccessRate}
@@ -950,7 +959,7 @@ const LineTimeChartCard = ({data, additionalStyles}) => {
 
     )
 }
-const LineTimeMultiChartCard = ({data, additionalStyles, colors=cheerfulFiestaPalette}) => {
+const LineTimeMultiChartCard = ({data, additionalStyles, colors=cheerfulFiestaPalette, view_utc_time}) => {
     const [value, setValue] = React.useState([0, 0]);
     const [range, setRange] = React.useState([0, 0]);
     React.useEffect( () => {
@@ -970,36 +979,51 @@ const LineTimeMultiChartCard = ({data, additionalStyles, colors=cheerfulFiestaPa
         if (newValue[1] - newValue[0] < minDistance) {
             if (activeThumb === 0) {
                 const clamped = Math.min(newValue[0], 100 - minDistance);
-                setValue([clamped, clamped + minDistance]);
+                setValue([Math.max(0, clamped), Math.min(clamped + minDistance, data.x.length > 0 ? data.x.length -1 : 0)]);
             } else {
                 const clamped = Math.max(newValue[1], minDistance);
-                setValue([clamped - minDistance, clamped]);
+                setValue([Math.max(0, clamped - minDistance), Math.min(clamped, data.x.length > 0 ? data.x.length -1 : 0)]);
             }
         } else {
             setValue(newValue);
         }
     };
+    const sliderDate = (sliderVal, view_utc_time) => {
+        if(view_utc_time){
+            try {
+                return data.x?.[sliderVal]?.toISOString()?.substr(0, 10);
+            }catch(error){
+                console.log("sliderDate utc error", error, sliderVal, data.x)
+                return String(sliderVal);
+            }
+        }
+        try {
+            return data.x?.[sliderVal]?.toDateString();
+        }catch(error){
+            console.log("sliderDate error", error, sliderVal, data.x)
+            return String(sliderVal);
+        }
+    }
     return (
         <Paper elevation={5} style={{
             marginBottom: "5px",
-            marginTop: "10px",
+            marginTop: "5px",
             width: "100%",
             height: "100%",
             border: "1px solid gray",
             overflow: "hidden",
         }} variant={"elevation"}>
             <Typography variant={"h3"} style={{margin: 0, padding: 0, position: "relative", left: "30%"}}>
-                Activity per Day
+                Activity per Day {view_utc_time ? "( UTC )" : "( " + Intl?.DateTimeFormat()?.resolvedOptions()?.timeZone + " )"}
             </Typography>
             <LineChart
                 colors={colors}
                 xAxis={[
                     {
                         data: data.x,
-                        //valueFormatter: (v) => (new Date(v)).toISOString().substr(0, 10),
                         scaleType: "time",
-                        min: data.x[value[0]] || 0,
-                        max: data.x[value[1]] || 0,
+                        min: data?.x?.[value[0]] || 0,
+                        max: data?.x?.[value[1]] || 0,
                         id: 'bottomAxis',
                         tickMinStep: 86400000,
                         labelStyle: {
@@ -1010,7 +1034,6 @@ const LineTimeMultiChartCard = ({data, additionalStyles, colors=cheerfulFiestaPa
                             textAnchor: 'start',
                             fontSize: 5,
                         },
-
                     },
                 ]}
                 yAxis={[
@@ -1038,7 +1061,7 @@ const LineTimeMultiChartCard = ({data, additionalStyles, colors=cheerfulFiestaPa
                 color={"info"}
                 size={"small"}
                 valueLabelDisplay={"auto"}
-                valueLabelFormat={sliderVal => data.x?.[sliderVal]?.toISOString()?.substr(0, 10) || sliderVal}
+                valueLabelFormat={sliderVal => sliderDate(sliderVal, view_utc_time)}
                 min={range[0]}
                 max={range[1]}
                 sx={{ mt: 2, width: "80%", left: "10%" }}

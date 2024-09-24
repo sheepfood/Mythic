@@ -2,7 +2,6 @@ import { IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import Tab from '@mui/material/Tab';
 import React from 'react';
-import { useCallback } from 'react';
 import Grow from '@mui/material/Grow';
 import Popper from '@mui/material/Popper';
 import MenuItem from '@mui/material/MenuItem';
@@ -45,12 +44,13 @@ function a11yProps(index) {
 }
 function allowDrop(ev) {
     ev.preventDefault();
+    return true;
  }
  
  function drag(ev) {
     ev.dataTransfer.setData("text", ev.target.id);
-    ev.dataTransfer.setData("opacity", ev.target.style.opacity);
-    ev.target.style.opacity = "0.2";
+    //ev.dataTransfer.setData("opacity", ev.target.style.opacity);
+    //ev.target.style.opacity = "0.2";
  }
 
  function onDragEnter(ev){
@@ -61,28 +61,38 @@ function allowDrop(ev) {
 
  function onDragLeave(ev){
     let node = ev.target.closest('[role="tab"]');
+    //console.log("onDragLeave");
     if(ev.target.getAttribute("role") === "tab"){
         //console.log("leaving tab", ev.target)
         node.style.border = "";
     } else if(node.contains(ev.target)){
+        //node.style.border = "";
         //console.log("onDragLeave, nodeContains", node, ev.target)
     }else{
         node.style.border = "";
         //console.log("onDragLeave, not contains", node, ev.target)
     }
  }
+
+ function onDragStop(ev) {
+     let node = ev.target.getAttribute("role") === "tab" ? ev.target : ev.target.closest('[role="tab"]');
+     node.style.border = "";
+ }
  
  function drop(ev) {
     // shares dataTransfer with drag function
+   //console.log("drop")
    ev.preventDefault();
    const data = ev.dataTransfer.getData("text");
    const tabList = ev.target.closest("div[role='tablist']"); 
    let node = ev.target.getAttribute("role") === "tab" ? ev.target : ev.target.closest('[role="tab"]');
    //console.log(tabList, data, node.nextSibling);
    node.style.border = "";
-   document.getElementById(data).style.opacity = ev.dataTransfer.getData("opacity");
+   //node.style.opacity = 1;
+   //document.getElementById(data).style.opacity = ev.dataTransfer.getData("opacity");
    for(let i = 0; i < tabList.children.length; i++){
         tabList.children[i].style.border = "";
+        //tabList.children[i].style.opacity = 1;
    }
    //tabList.insertBefore(document.getElementById(data), node.nextSibling);
    //console.log("selected", data, "toLeftOf", node.id);
@@ -103,6 +113,7 @@ export function MythicTabLabel(props) {
         onEditTabDescription,
         getCallbackData,
         onDragTab,
+        selectedIndex,
         ...other
     } = props;
     const onClick = (e) => {
@@ -134,8 +145,10 @@ export function MythicTabLabel(props) {
             onDragOver={allowDrop}
             onDragEnter={onDragEnter}
             onDragLeave={onDragLeave}
-            draggable={onDragTab ? true : false}
+            draggable={!!onDragTab}
+            className={selectedIndex === index ? "selectedCallback" : "" }
             onDragStart={drag}
+            onDragEnd={onDragStop}
             label={
                 <span onContextMenu={handleContextClick} style={{ display: 'inline-block', zIndex: 1}} ref={dropdownAnchorRef}>
                     {label}
@@ -150,7 +163,7 @@ export function MythicTabLabel(props) {
                         transformOrigin: placement === 'bottom' ? 'center top' : 'center bottom',
                       }}
                     >
-                      <Paper variant="outlined" style={{backgroundColor: theme.palette.mode === 'dark' ? theme.palette.primary.dark : theme.palette.primary.light, color: "white"}}>
+                      <Paper variant="outlined" className={"dropdownMenuColored"}>
                         <ClickAwayListener onClickAway={handleClose} mouseEvent={"onMouseDown"}>
                           <MenuList id="split-button-menu"  >
                             {contextMenuOptions.map((option, index) => (
@@ -172,7 +185,7 @@ export function MythicTabLabel(props) {
             
             {...a11yProps(index)}
             {...other}
-            style={{padding: "0px 5px 0px 5px"}}
+            style={{padding: "0px 5px 0px 5px", borderRadius: "4px", margin: 0}}
         />
     );
 }

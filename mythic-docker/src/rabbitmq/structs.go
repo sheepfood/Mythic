@@ -20,37 +20,51 @@ type PayloadBuildC2ProfileMessageResponse struct {
 
 // exporting a payload configuration
 type PayloadConfiguration struct {
-	Description        string                                `json:"description" binding:"required"`
-	PayloadType        string                                `json:"payload_type" binding:"required"`
-	C2Profiles         *[]PayloadConfigurationC2Profile      `json:"c2_profiles,omitempty"`
-	BuildParameters    *[]PayloadConfigurationBuildParameter `json:"build_parameters,omitempty"`
-	Commands           []string                              `json:"commands,omitempty"`
-	SelectedOS         string                                `json:"selected_os" binding:"required"`
-	Filename           string                                `json:"filename" binding:"required"`
-	WrappedPayloadUUID string                                `json:"wrapped_payload,omitemtpy"`
-	UUID               string                                `json:"uuid,omitempty"`
-	AgentFileID        string                                `json:"agent_file_id,omitempty"`
-	BuildPhase         string                                `json:"build_phase,omitempty"`
+	Description        string                                `json:"description" mapstructure:"description" binding:"required"`
+	PayloadType        string                                `json:"payload_type" mapstructure:"payload_type" binding:"required"`
+	C2Profiles         *[]PayloadConfigurationC2Profile      `json:"c2_profiles,omitempty" mapstructure:"c2_profiles"`
+	BuildParameters    *[]PayloadConfigurationBuildParameter `json:"build_parameters,omitempty" mapstructure:"build_parameters"`
+	Commands           []string                              `json:"commands,omitempty" mapstructure:"commands"`
+	SelectedOS         string                                `json:"selected_os" mapstructure:"selected_os" binding:"required"`
+	Filename           string                                `json:"filename" mapstructure:"filename" binding:"required"`
+	WrappedPayloadUUID string                                `json:"wrapped_payload,omitemtpy" mapstructure:"wrapped_payload"`
+	UUID               string                                `json:"uuid,omitempty" mapstructure:"uuid"`
+	AgentFileID        string                                `json:"agent_file_id,omitempty" mapstructure:"agent_file_id"`
+	BuildPhase         string                                `json:"build_phase,omitempty" mapstructure:"build_phase"`
+	EventStepInstance  int                                   `json:"event_step_instance,omitempty" mapstructure:"event_step_instance"`
 }
 type PayloadConfigurationC2Profile struct {
-	Name       string                 `json:"c2_profile"`
-	Parameters map[string]interface{} `json:"c2_profile_parameters"`
+	Name       string                 `json:"c2_profile" mapstructure:"c2_profile"`
+	IsP2P      bool                   `json:"c2_profile_is_p2p" mapstructure:"c2_profile_is_p2p"`
+	Parameters map[string]interface{} `json:"c2_profile_parameters" mapstructure:"c2_profile_parameters"`
 }
 type PayloadConfigurationBuildParameter struct {
-	Name  string      `json:"name" binding:"required"`
-	Value interface{} `json:"value" binding:"required"`
+	Name  string      `json:"name" binding:"required" mapstructure:"name"`
+	Value interface{} `json:"value" binding:"required" mapstructure:"value"`
 }
 
-// PT_TASK_* structs
-
-type PTTaskMessageAllData struct {
-	Task            PTTaskMessageTaskData                `json:"task"`
+type PTOnNewCallbackAllData struct {
 	Callback        PTTaskMessageCallbackData            `json:"callback"`
 	BuildParameters []PayloadConfigurationBuildParameter `json:"build_parameters"`
 	Commands        []string                             `json:"commands"`
 	Payload         PTTaskMessagePayloadData             `json:"payload"`
 	C2Profiles      []PayloadConfigurationC2Profile      `json:"c2info"`
 	PayloadType     string                               `json:"payload_type"`
+	Secrets         map[string]interface{}               `json:"secrets"`
+}
+
+// PT_TASK_* structs
+
+type PTTaskMessageAllData struct {
+	Task               PTTaskMessageTaskData                `json:"task"`
+	Callback           PTTaskMessageCallbackData            `json:"callback"`
+	BuildParameters    []PayloadConfigurationBuildParameter `json:"build_parameters"`
+	Commands           []string                             `json:"commands"`
+	Payload            PTTaskMessagePayloadData             `json:"payload"`
+	C2Profiles         []PayloadConfigurationC2Profile      `json:"c2info"`
+	PayloadType        string                               `json:"payload_type"`
+	CommandPayloadType string                               `json:"command_payload_type"`
+	Secrets            map[string]interface{}               `json:"secrets"`
 }
 
 type PTTaskMessageTaskData struct {
@@ -61,6 +75,8 @@ type PTTaskMessageTaskData struct {
 	Params                             string `json:"params"`
 	Timestamp                          string `json:"timestamp"`
 	CallbackID                         int    `json:"callback_id"`
+	CallbackDisplayID                  int    `json:"callback_display_id"`
+	PayloadType                        string `json:"payload_type"`
 	Status                             string `json:"status"`
 	OriginalParams                     string `json:"original_params"`
 	DisplayParams                      string `json:"display_params"`
@@ -69,6 +85,7 @@ type PTTaskMessageTaskData struct {
 	Stderr                             string `json:"stderr"`
 	Completed                          bool   `json:"completed"`
 	OperatorUsername                   string `json:"operator_username"`
+	OperatorID                         int    `json:"operator_id"`
 	OpsecPreBlocked                    bool   `json:"opsec_pre_blocked"`
 	OpsecPreMessage                    string `json:"opsec_pre_message"`
 	OpsecPreBypassed                   bool   `json:"opsec_pre_bypassed"`
@@ -88,6 +105,9 @@ type PTTaskMessageTaskData struct {
 	TaskingLocation                    string `json:"tasking_location"`
 	ParameterGroupName                 string `json:"parameter_group_name"`
 	TokenID                            int    `json:"token_id"`
+	InteractiveTaskType                int    `json:"interactive_task_type"`
+	IsInteractiveTask                  bool   `json:"is_interactive_task"`
+	EventStepInstanceId                int    `json:"eventstepinstance_id"`
 }
 
 type PTTaskMessageCallbackData struct {
@@ -105,11 +125,13 @@ type PTTaskMessageCallbackData struct {
 	ProcessName         string   `json:"process_name"`
 	Description         string   `json:"description"`
 	OperatorID          int      `json:"operator_id"`
+	OperatorUsername    string   `json:"operator_username"`
 	Active              bool     `json:"active"`
 	RegisteredPayloadID int      `json:"registered_payload_id"`
 	IntegrityLevel      int      `json:"integrity_level"`
 	Locked              bool     `json:"locked"`
 	OperationID         int      `json:"operation_id"`
+	OperationName       string   `json:"operation_name"`
 	CryptoType          string   `json:"crypto_type"`
 	DecKey              []byte   `json:"dec_key"`
 	EncKey              []byte   `json:"enc_key"`
@@ -130,24 +152,26 @@ type PT_TASK_FUNCTION_STATUS = string
 
 const (
 	PT_TASK_FUNCTION_STATUS_OPSEC_PRE                        PT_TASK_FUNCTION_STATUS = "OPSEC Pre Check Running..."
-	PT_TASK_FUNCTION_STATUS_OPSEC_PRE_ERROR                                          = "Error: opsec check - check task stdout/stderr"
+	PT_TASK_FUNCTION_STATUS_OPSEC_PRE_ERROR                                          = "Error: processing arguments - click cog to check stderr"
 	PT_TASK_FUNCTION_STATUS_OPSEC_PRE_BLOCKED                                        = "OPSEC Pre Blocked"
 	PT_TASK_FUNCTION_STATUS_PREPROCESSING                                            = "creating task..."
-	PT_TASK_FUNCTION_STATUS_PREPROCESSING_ERROR                                      = "Error: creating task - check task stdout/stderr"
+	PT_TASK_FUNCTION_STATUS_PREPROCESSING_ERROR                                      = "Error: creating task - click cog to check stderr"
 	PT_TASK_FUNCTION_STATUS_OPSEC_POST                                               = "OPSEC Post Check Running..."
-	PT_TASK_FUNCTION_STATUS_OPSEC_POST_ERROR                                         = "Error: opsec check - check task stdout/stderr"
+	PT_TASK_FUNCTION_STATUS_OPSEC_POST_ERROR                                         = "Error: opsec check - click cog to check stderr"
 	PT_TASK_FUNCTION_STATUS_OPSEC_POST_BLOCKED                                       = "OPSEC Post Blocked"
 	PT_TASK_FUNCTION_STATUS_SUBMITTED                                                = "submitted"
 	PT_TASK_FUNCTION_STATUS_PROCESSING                                               = "agent processing"
 	PT_TASK_FUNCTION_STATUS_DELEGATING                                               = "delegating tasks..."
 	PT_TASK_FUNCTION_STATUS_COMPLETION_FUNCTION                                      = "Completion Function Running..."
-	PT_TASK_FUNCTION_STATUS_COMPLETION_FUNCTION_ERROR                                = "Error: completion function - check task stdout/stderr"
+	PT_TASK_FUNCTION_STATUS_COMPLETION_FUNCTION_ERROR                                = "Error: completion function - click cog to check stderr"
 	PT_TASK_FUNCTION_STATUS_SUBTASK_COMPLETED_FUNCTION                               = "SubTask Completion Function Running..."
-	PT_TASK_FUNCTION_STATUS_SUBTASK_COMPLETED_FUNCTION_ERROR                         = "Error: subtask completion function - check task stdout/stderr"
+	PT_TASK_FUNCTION_STATUS_SUBTASK_COMPLETED_FUNCTION_ERROR                         = "Error: subtask completion function - click cog to check stderr"
 	PT_TASK_FUNCTION_STATUS_GROUP_COMPLETED_FUNCTION                                 = "Group Completion Function Running..."
-	PT_TASK_FUNCTION_STATUS_GROUP_COMPLETED_FUNCTION_ERROR                           = "Error: group completion function - check task stdout/stderr"
-	PT_TASK_FUNCTION_STATUS_COMPLETED                                                = "completed"
+	PT_TASK_FUNCTION_STATUS_GROUP_COMPLETED_FUNCTION_ERROR                           = "Error: group completion function - click cog to check stderr"
+	PT_TASK_FUNCTION_STATUS_COMPLETED                                                = "success"
 	PT_TASK_FUNCTION_STATUS_PROCESSED                                                = "processed, waiting for more messages..."
+	PT_TASK_FUNCTION_STATUS_INTERCEPTED                                              = "intercepted for custom checks"
+	PT_TASK_FUNCTION_STATUS_INTERCEPTED_ERROR                                        = "Error: Task Interception Failed"
 )
 
 // Tasking step 1:

@@ -23,6 +23,10 @@ type PreviewFileResponse struct {
 	Status         string `json:"status"`
 	Error          string `json:"error"`
 	Base64Contents string `json:"contents"`
+	Size           int64  `json:"size"`
+	Host           string `json:"host"`
+	FullRemotePath string `json:"full_remote_path"`
+	Filename       string `json:"filename"`
 }
 
 func PreviewFileWebhook(c *gin.Context) {
@@ -36,59 +40,74 @@ func PreviewFileWebhook(c *gin.Context) {
 		})
 		return
 	}
+
 	// get the associated database information
 	filemeta := databaseStructs.Filemeta{}
 	//logging.LogDebug("about to fetch file for preview", "file id", input.Input.FileId)
-	if userID, err := GetUserIDFromGin(c); err != nil {
+	userID, err := GetUserIDFromGin(c)
+	if err != nil {
 		logging.LogError(err, "Failed to get userID from JWT")
 		c.JSON(http.StatusOK, PreviewFileResponse{
 			Status: "error",
 			Error:  err.Error(),
 		})
 		return
-	} else if user, err := database.GetUserFromID(userID); err != nil {
+	}
+	user, err := database.GetUserFromID(userID)
+	if err != nil {
 		logging.LogError(err, "Failed to get calling user information from database")
 		c.JSON(http.StatusOK, PreviewFileResponse{
 			Status: "error",
 			Error:  err.Error(),
 		})
 		return
-	} else if err := database.DB.Get(&filemeta, `SELECT
-	path
+	}
+	// set this for logging later
+	c.Set("file_id", input.Input.FileId)
+	err = database.DB.Get(&filemeta, `SELECT
+	path, id, operation_id, size, host, filename, full_remote_path
 	FROM filemeta 
 	WHERE
 	filemeta.agent_file_id=$1 AND filemeta.operation_id=$2 AND deleted=false
-	`, input.Input.FileId, user.CurrentOperationID.Int64); err != nil {
+	`, input.Input.FileId, user.CurrentOperationID.Int64)
+	if err != nil {
 		logging.LogError(err, "Failed to get file data from database")
 		c.JSON(http.StatusOK, PreviewFileResponse{
 			Status: "error",
 			Error:  err.Error(),
 		})
 		return
-	} else if file, err := os.Open(filemeta.Path); err != nil {
+	}
+	go tagFileAs(filemeta.ID, user.Username, filemeta.OperationID, tagTypePreview, nil, c)
+	file, err := os.Open(filemeta.Path)
+	if err != nil {
 		logging.LogError(err, "Failed to open file from disk")
 		c.JSON(http.StatusOK, PreviewFileResponse{
 			Status: "error",
 			Error:  err.Error(),
 		})
 		return
-	} else {
-		defer file.Close()
-		content := make([]byte, 512000)
-		if bytesRead, err := file.Read(content); err != nil {
-			logging.LogError(err, "Failed to read file from disk")
-			c.JSON(http.StatusOK, PreviewFileResponse{
-				Status: "error",
-				Error:  err.Error(),
-			})
-			return
-		} else {
-			base64Contents := base64.RawStdEncoding.EncodeToString(content[:bytesRead])
-			c.JSON(http.StatusOK, PreviewFileResponse{
-				Status:         "success",
-				Base64Contents: base64Contents,
-			})
-			return
-		}
 	}
+	defer file.Close()
+	content := make([]byte, 512000)
+	bytesRead, err := file.Read(content)
+	if err != nil {
+		logging.LogError(err, "Failed to read file from disk")
+		c.JSON(http.StatusOK, PreviewFileResponse{
+			Status: "error",
+			Error:  err.Error(),
+		})
+		return
+	}
+	base64Contents := base64.RawStdEncoding.EncodeToString(content[:bytesRead])
+	c.JSON(http.StatusOK, PreviewFileResponse{
+		Status:         "success",
+		Base64Contents: base64Contents,
+		Size:           filemeta.Size,
+		Host:           filemeta.Host,
+		Filename:       string(filemeta.Filename),
+		FullRemotePath: string(filemeta.FullRemotePath),
+	})
+	return
+
 }

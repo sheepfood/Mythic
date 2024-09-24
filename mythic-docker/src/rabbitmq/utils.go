@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/its-a-feature/Mythic/eventing"
 	"github.com/mitchellh/mapstructure"
 	"os"
 	"path/filepath"
@@ -22,6 +23,8 @@ import (
 // Build Parameter information for PayloadSyncing and Payload Building
 func getSyncToDatabaseValueForChoices(parameterType string, choices []string, dictionaryChoices []ParameterDictionary) (databaseStructs.MythicJSONArray, error) {
 	switch parameterType {
+	case BUILD_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM:
+		fallthrough
 	case BUILD_PARAMETER_TYPE_CHOOSE_ONE:
 		fallthrough
 	case BUILD_PARAMETER_TYPE_ARRAY:
@@ -40,6 +43,8 @@ func getSyncToDatabaseValueForChoices(parameterType string, choices []string, di
 		fallthrough
 	case BUILD_PARAMETER_TYPE_FILE:
 		fallthrough
+	case BUILD_PARAMETER_TYPE_FILE_MULTIPLE:
+		fallthrough
 	case BUILD_PARAMETER_TYPE_DATE:
 		return databaseStructs.MythicJSONArray{}, nil
 	default:
@@ -49,6 +54,25 @@ func getSyncToDatabaseValueForChoices(parameterType string, choices []string, di
 }
 func getSyncToDatabaseValueForDefaultValue(parameterType string, defaultValue interface{}, choices []string) (string, error) {
 	switch parameterType {
+	case BUILD_PARAMETER_TYPE_TYPED_ARRAY:
+		switch v := defaultValue.(type) {
+		case string:
+			return v, nil
+		case nil:
+			if len(choices) > 0 {
+				return choices[0], nil
+			}
+			return "", nil
+		case []interface{}:
+			if len(v) == 0 {
+				return "", nil
+			}
+			return fmt.Sprintf("%v", v[0]), nil
+		default:
+			tmpErr := errors.New(fmt.Sprintf("bad type for *_PARAMETER_TYPE_TYPED_ARRAY: %T", v))
+			logging.LogError(tmpErr, "bad type of default value for parameter type *_PARAMETER_TYPE_STRING", "value", v, "defaultValue", defaultValue)
+			return "", tmpErr
+		}
 	case BUILD_PARAMETER_TYPE_STRING:
 		switch v := defaultValue.(type) {
 		case string:
@@ -64,8 +88,6 @@ func getSyncToDatabaseValueForDefaultValue(parameterType string, defaultValue in
 			return "", tmpErr
 		}
 	case BUILD_PARAMETER_TYPE_CHOOSE_MULTIPLE:
-		fallthrough
-	case BUILD_PARAMETER_TYPE_TYPED_ARRAY:
 		fallthrough
 	case BUILD_PARAMETER_TYPE_ARRAY:
 		switch v := defaultValue.(type) {
@@ -83,6 +105,8 @@ func getSyncToDatabaseValueForDefaultValue(parameterType string, defaultValue in
 			logging.LogError(tmpErr, "bad type of default value for parameter type *_PARAMETER_TYPE_ARRAY", "value", v)
 			return "", tmpErr
 		}
+	case BUILD_PARAMETER_TYPE_FILE_MULTIPLE:
+		return "[]", nil
 	case BUILD_PARAMETER_TYPE_BOOLEAN:
 		switch v := defaultValue.(type) {
 		case bool:
@@ -127,6 +151,25 @@ func getSyncToDatabaseValueForDefaultValue(parameterType string, defaultValue in
 		}
 	case BUILD_PARAMETER_TYPE_DICTIONARY:
 		return "", nil
+	case BUILD_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM:
+		switch v := defaultValue.(type) {
+		case string:
+			if len(choices) == 0 {
+				return "", nil
+			} else {
+				return v, nil
+			}
+		case nil:
+			if len(choices) > 0 {
+				return choices[0], nil
+			} else {
+				return "", nil
+			}
+		default:
+			tmpErr := errors.New(fmt.Sprintf("bad type for *_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM: %T", v))
+			logging.LogError(tmpErr, "bad type of default value for parameter type *_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM", "value", v)
+			return "", tmpErr
+		}
 	case BUILD_PARAMETER_TYPE_CHOOSE_ONE:
 		switch v := defaultValue.(type) {
 		case string:
@@ -183,9 +226,11 @@ func getSyncToDatabaseValueForDefaultValue(parameterType string, defaultValue in
 		return "", errors.New("Unknown parameter type")
 	}
 }
-func getFinalStringForDatabaseInstanceValueFromUserSuppliedValue(parameterType string, userSuppliedValue interface{}) (string, error) {
+func GetFinalStringForDatabaseInstanceValueFromUserSuppliedValue(parameterType string, userSuppliedValue interface{}) (string, error) {
 	switch parameterType {
 	case BUILD_PARAMETER_TYPE_CHOOSE_ONE:
+		fallthrough
+	case BUILD_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM:
 		fallthrough
 	case BUILD_PARAMETER_TYPE_STRING:
 		switch v := userSuppliedValue.(type) {
@@ -207,6 +252,8 @@ func getFinalStringForDatabaseInstanceValueFromUserSuppliedValue(parameterType s
 			return "", tmpErr
 		}
 	case BUILD_PARAMETER_TYPE_CHOOSE_MULTIPLE:
+		fallthrough
+	case BUILD_PARAMETER_TYPE_FILE_MULTIPLE:
 		fallthrough
 	case BUILD_PARAMETER_TYPE_ARRAY:
 		switch v := userSuppliedValue.(type) {
@@ -370,6 +417,8 @@ func getFinalStringForDatabaseInstanceValueFromDefaultDatabaseString(parameterTy
 		}
 	}
 	switch parameterType {
+	case BUILD_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM:
+		fallthrough
 	case BUILD_PARAMETER_TYPE_CHOOSE_ONE:
 		if defaultValue == "" {
 			stringChoices := make([]string, len(choices))
@@ -393,6 +442,8 @@ func getFinalStringForDatabaseInstanceValueFromDefaultDatabaseString(parameterTy
 		} else {
 			return strings.TrimSpace(defaultValue), nil
 		}
+	case BUILD_PARAMETER_TYPE_FILE:
+		fallthrough
 	case BUILD_PARAMETER_TYPE_STRING:
 		return strings.TrimSpace(defaultValue), nil
 	case BUILD_PARAMETER_TYPE_CHOOSE_MULTIPLE:
@@ -459,10 +510,13 @@ func GetInterfaceValueForContainer(parameterType string, finalString string, enc
 		} else {
 			return strings.TrimSpace(finalString), nil
 		}
-
+	case BUILD_PARAMETER_TYPE_CHOOSE_ONE_CUSTOM:
+		fallthrough
 	case BUILD_PARAMETER_TYPE_STRING:
 		return strings.TrimSpace(finalString), nil
 	case BUILD_PARAMETER_TYPE_CHOOSE_MULTIPLE:
+		fallthrough
+	case BUILD_PARAMETER_TYPE_FILE_MULTIPLE:
 		fallthrough
 	case BUILD_PARAMETER_TYPE_ARRAY:
 		var arrayValues []interface{}
@@ -516,11 +570,12 @@ func GetInterfaceValueForContainer(parameterType string, finalString string, enc
 }
 
 // Payload information for exporting, rebuilding
-func GetC2ProfileInformation(payload databaseStructs.Payload) *[]PayloadConfigurationC2Profile {
+func GetPayloadC2ProfileInformation(payload databaseStructs.Payload) *[]PayloadConfigurationC2Profile {
 	c2profileParameterInstances := []databaseStructs.C2profileparametersinstance{}
 	if err := database.DB.Select(&c2profileParameterInstances, `SELECT 
 	c2profile.name "c2profile.name",
 	c2profile.id "c2profile.id",
+	c2profile.is_p2p "c2profile.is_p2p",
 	value, enc_key, dec_key,
 	c2profileparameters.crypto_type "c2profileparameters.crypto_type", 
 	c2profileparameters.parameter_type "c2profileparameters.parameter_type",
@@ -544,8 +599,12 @@ func GetC2ProfileInformation(payload databaseStructs.Payload) *[]PayloadConfigur
 	}
 	finalC2Profiles := []PayloadConfigurationC2Profile{}
 	for c2ProfileName, c2ProfileGroup := range parametersMap {
+		isP2P := false
 		parametersValueDictionary := make(map[string]interface{})
 		for _, parameter := range c2ProfileGroup {
+			if parameter.C2Profile.IsP2p {
+				isP2P = true
+			}
 			if interfaceParam, err := GetInterfaceValueForContainer(
 				parameter.C2ProfileParameter.ParameterType,
 				parameter.Value,
@@ -561,6 +620,62 @@ func GetC2ProfileInformation(payload databaseStructs.Payload) *[]PayloadConfigur
 		finalC2Profiles = append(finalC2Profiles, PayloadConfigurationC2Profile{
 			Name:       c2ProfileName,
 			Parameters: parametersValueDictionary,
+			IsP2P:      isP2P,
+		})
+	}
+	return &finalC2Profiles
+}
+func GetCallbackC2ProfileInformation(callback databaseStructs.Callback) *[]PayloadConfigurationC2Profile {
+	c2profileParameterInstances := []databaseStructs.C2profileparametersinstance{}
+	if err := database.DB.Select(&c2profileParameterInstances, `SELECT 
+	c2profile.name "c2profile.name",
+	c2profile.id "c2profile.id",
+	c2profile.is_p2p "c2profile.is_p2p",
+	value, enc_key, dec_key,
+	c2profileparameters.crypto_type "c2profileparameters.crypto_type", 
+	c2profileparameters.parameter_type "c2profileparameters.parameter_type",
+	c2profileparameters.name "c2profileparameters.name"
+	FROM c2profileparametersinstance 
+	JOIN c2profileparameters ON c2profileparametersinstance.c2_profile_parameters_id = c2profileparameters.id 
+	JOIN c2profile ON c2profileparametersinstance.c2_profile_id = c2profile.id
+	WHERE callback_id=$1`, callback.ID); err != nil {
+		logging.LogError(err, "Failed to fetch c2 profile parameters from database for callback", "callback_id", callback.ID)
+		return nil
+	}
+	parametersMap := make(map[string][]databaseStructs.C2profileparametersinstance)
+	for _, parameter := range c2profileParameterInstances {
+		if _, ok := parametersMap[parameter.C2Profile.Name]; ok {
+			// we've already seen parameter.C2Profile.Name before, add to the array
+			parametersMap[parameter.C2Profile.Name] = append(parametersMap[parameter.C2Profile.Name], parameter)
+		} else {
+			// we haven't seen parameter.C2Profile.Name before, create the array
+			parametersMap[parameter.C2Profile.Name] = []databaseStructs.C2profileparametersinstance{parameter}
+		}
+	}
+	finalC2Profiles := []PayloadConfigurationC2Profile{}
+	for c2ProfileName, c2ProfileGroup := range parametersMap {
+		parametersValueDictionary := make(map[string]interface{})
+		isP2P := false
+		for _, parameter := range c2ProfileGroup {
+			if parameter.C2Profile.IsP2p {
+				isP2P = true
+			}
+			if interfaceParam, err := GetInterfaceValueForContainer(
+				parameter.C2ProfileParameter.ParameterType,
+				parameter.Value,
+				parameter.EncKey,
+				parameter.DecKey,
+				parameter.C2ProfileParameter.IsCryptoType); err != nil {
+				logging.LogError(err, "Failed to get c2 profile parameter instance interface")
+				parametersValueDictionary[parameter.C2ProfileParameter.Name] = parameter.Value
+			} else {
+				parametersValueDictionary[parameter.C2ProfileParameter.Name] = interfaceParam
+			}
+		}
+		finalC2Profiles = append(finalC2Profiles, PayloadConfigurationC2Profile{
+			Name:       c2ProfileName,
+			Parameters: parametersValueDictionary,
+			IsP2P:      isP2P,
 		})
 	}
 	return &finalC2Profiles
@@ -570,8 +685,11 @@ func GetBuildParameterInformation(payloadID int) *[]PayloadConfigurationBuildPar
 	buildParameters := []databaseStructs.Buildparameterinstance{}
 	if err := database.DB.Select(&buildParameters, `SELECT
 	buildparameterinstance.value,
+	buildparameterinstance.enc_key,
+	buildparameterinstance.dec_key,
 	buildparameter.name "buildparameter.name",
-	buildparameter.parameter_type "buildparameter.parameter_type"
+	buildparameter.parameter_type "buildparameter.parameter_type",
+	buildparameter.crypto_type "buildparameter.crypto_type"
 	FROM
 	buildparameterinstance
 	JOIN buildparameter ON buildparameterinstance.build_parameter_id = buildparameter.id
@@ -584,35 +702,16 @@ func GetBuildParameterInformation(payloadID int) *[]PayloadConfigurationBuildPar
 		buildValues := make([]PayloadConfigurationBuildParameter, len(buildParameters))
 		for index, parameter := range buildParameters {
 			buildValues[index].Name = parameter.BuildParameter.Name
-			if parameter.BuildParameter.ParameterType == BUILD_PARAMETER_TYPE_ARRAY || parameter.BuildParameter.ParameterType == BUILD_PARAMETER_TYPE_CHOOSE_MULTIPLE {
-				// we need to parse the value into a []interface{}
-				var arrayValues []interface{}
-				if err := json.Unmarshal([]byte(parameter.Value), &arrayValues); err != nil {
-					logging.LogError(err, "Failed to unmarshal build parameter array values")
-					return nil
-				} else {
-					buildValues[index].Value = arrayValues
-				}
-			} else if parameter.BuildParameter.ParameterType == BUILD_PARAMETER_TYPE_DICTIONARY {
-				// we need to parse the value into a []map[string]interface{}{}
-				var dictionaryInitialValues map[string]interface{}
-				if err := json.Unmarshal([]byte(parameter.Value), &dictionaryInitialValues); err != nil {
-					logging.LogError(err, "Failed to unmarshal build parameter dictionary values")
-					return nil
-				} else {
-					buildValues[index].Value = dictionaryInitialValues
-				}
-			} else if parameter.BuildParameter.ParameterType == BUILD_PARAMETER_TYPE_TYPED_ARRAY {
-				// we need to parse the value into [][]interface{}
-				var arrayValues [][]interface{}
-				if err := json.Unmarshal([]byte(parameter.Value), &arrayValues); err != nil {
-					logging.LogError(err, "Failed to unmarshal build parameter typed array values")
-					return nil
-				} else {
-					buildValues[index].Value = arrayValues
-				}
-			} else {
+			if interfaceParam, err := GetInterfaceValueForContainer(
+				parameter.BuildParameter.ParameterType,
+				parameter.Value,
+				parameter.EncKey,
+				parameter.DecKey,
+				parameter.BuildParameter.IsCryptoType); err != nil {
+				logging.LogError(err, "Failed to get c2 profile parameter instance interface")
 				buildValues[index].Value = parameter.Value
+			} else {
+				buildValues[index].Value = interfaceParam
 			}
 		}
 		return &buildValues
@@ -636,6 +735,23 @@ func GetPayloadCommandInformation(payload databaseStructs.Payload) []string {
 		return commandStrings
 	}
 }
+func GetCallbackCommandInformation(callback databaseStructs.Callback) []string {
+	commands := []databaseStructs.Loadedcommands{}
+	if err := database.DB.Select(&commands, `SELECT 
+	command.cmd "command.cmd" 
+	FROM loadedcommands 
+	JOIN command ON loadedcommands.command_id = command.id
+	WHERE loadedcommands.callback_id=$1`, callback.ID); err != nil {
+		logging.LogError(err, "Failed to fetch commands for payload")
+		return []string{}
+	} else {
+		commandStrings := make([]string, len(commands))
+		for index, command := range commands {
+			commandStrings[index] = command.Command.Cmd
+		}
+		return commandStrings
+	}
+}
 
 // Helper functions for getting information for sending Task data to a container
 func CheckAndProcessTaskCompletionHandlers(taskId int) {
@@ -643,21 +759,28 @@ func CheckAndProcessTaskCompletionHandlers(taskId int) {
 	//logging.LogInfo("kicking off CheckAndProcessTaskCompletionHandlers", "taskId", taskId)
 	task := databaseStructs.Task{}
 	parentTask := databaseStructs.Task{}
-	if err := database.DB.Get(&task, `SELECT
-		task.parent_task_id, 
+	err := database.DB.Get(&task, `SELECT
+		task.parent_task_id, task.operator_id,
 		task.subtask_callback_function, task.subtask_callback_function_completed,
 		task.group_callback_function, task.group_callback_function_completed, task.completed_callback_function,
-		task.completed_callback_function_completed, task.subtask_group_name, task.id, task.status
+		task.completed_callback_function_completed, task.subtask_group_name, task.id, task.status, task.eventstepinstance_id
 		FROM task
-		WHERE task.id=$1`, taskId); err != nil {
+		WHERE task.id=$1`, taskId)
+	if err != nil {
 		logging.LogError(err, "Failed to check for completion functions for task")
-	} else if task.ParentTaskID.Valid {
-		if err = database.DB.Get(&parentTask, `SELECT 
-    		task.id, task.status, task.completed,
+	}
+	_, err = database.DB.Exec(`UPDATE apitokens SET deleted=true AND active=false WHERE task_id=$1`, taskId)
+	if err != nil {
+		logging.LogError(err, "Failed to update the apitokens to set to deleted")
+	}
+	if task.ParentTaskID.Valid {
+		err = database.DB.Get(&parentTask, `SELECT 
+    		task.id, task.status, task.completed, task.eventstepinstance_id,
     		c.script_only "command.script_only"
     		from task
     		LEFT OUTER JOIN command c on task.command_id = c.id
-    		WHERE task.id=$1`, task.ParentTaskID.Int64); err != nil {
+    		WHERE task.id=$1`, task.ParentTaskID.Int64)
+		if err != nil {
 			logging.LogError(err, "Failed to get parent task information")
 		}
 	}
@@ -837,21 +960,55 @@ func GetTaskMessageCallbackC2ProfileInformation(callbackID int) []PayloadConfigu
 func GetTaskMessageCallbackInformation(callbackID int) PTTaskMessageCallbackData {
 	data := PTTaskMessageCallbackData{}
 	databaseData := databaseStructs.Callback{}
-	if err := database.DB.Get(&databaseData, `SELECT * FROM callback WHERE id=$1`,
-		callbackID); err != nil {
+	err := database.DB.Get(&databaseData, `SELECT 
+    	callback.*,
+    	operator.username "operator.username",
+    	operation.name "operation.name"
+		FROM callback 
+		JOIN operation ON callback.operation_id = operation.id
+		JOIN operator ON callback.operator_id = operator.id
+		WHERE callback.id=$1`,
+		callbackID)
+	if err != nil {
 		logging.LogError(err, "Failed to get callback information")
 		return data
-	} else if callbackJSON, err := json.Marshal(databaseData); err != nil {
-		logging.LogError(err, "Failed to marshal callback data into JSON")
-		return data
-	} else {
-		if err := json.Unmarshal(callbackJSON, &data); err != nil {
-			logging.LogError(err, "Failed to unmarshal callback JSON data to PTTaskMessageCallbackData ")
-		} else if err := json.Unmarshal([]byte(databaseData.IP), &data.IPs); err != nil {
-			logging.LogError(err, "Failed to unmarshal IP string back to array")
-		}
-		//logging.LogDebug("converted back to struct", "struct", data)
 	}
+	data.ID = databaseData.ID
+	data.DisplayID = databaseData.DisplayID
+	data.AgentCallbackID = databaseData.AgentCallbackID
+	data.InitCallback = databaseData.InitCallback.String()
+	data.LastCheckin = databaseData.LastCheckin.String()
+	data.User = databaseData.User
+	data.Host = databaseData.Host
+	data.PID = databaseData.PID
+	data.IP = databaseData.IP
+	err = json.Unmarshal([]byte(databaseData.IP), &data.IPs)
+	if err != nil {
+		logging.LogError(err, "Failed to unmarshal IP string back to array")
+	}
+	data.ExternalIp = databaseData.ExternalIp
+	data.ProcessName = databaseData.ProcessName
+	data.Description = databaseData.Description
+	data.OperatorID = databaseData.OperatorID
+	data.OperatorUsername = databaseData.Operator.Username
+	data.Active = databaseData.Active
+	data.RegisteredPayloadID = databaseData.RegisteredPayloadID
+	data.IntegrityLevel = databaseData.IntegrityLevel
+	data.Locked = databaseData.Locked
+	data.OperationID = databaseData.OperationID
+	data.OperationName = databaseData.Operation.Name
+	data.CryptoType = databaseData.CryptoType
+	if databaseData.DecKey != nil {
+		data.DecKey = *databaseData.DecKey
+	}
+	if databaseData.EncKey != nil {
+		data.DecKey = *databaseData.EncKey
+	}
+	data.Os = databaseData.Os
+	data.Architecture = databaseData.Architecture
+	data.Domain = databaseData.Domain
+	data.ExtraInfo = databaseData.ExtraInfo
+	data.SleepInfo = databaseData.SleepInfo
 	return data
 }
 
@@ -859,27 +1016,73 @@ func GetTaskMessageTaskInformation(taskID int) PTTaskMessageTaskData {
 	data := PTTaskMessageTaskData{}
 	databaseTask := databaseStructs.Task{}
 	// select task data, then marshal/unmarshal it as a quick way to filter out attributes
-	if err := database.DB.Get(&databaseTask, `SELECT 
+	err := database.DB.Get(&databaseTask, `SELECT 
     	task.*,
-		operator.username "operator.username"
+    	callback.display_id "callback.display_id",
+		operator.username "operator.username",
+		payloadtype.name "callback.payload.payloadtype.name"
     	FROM task 
     	JOIN operator ON task.operator_id = operator.id
-    	WHERE task.id=$1`, taskID); err != nil {
+    	JOIN callback ON task.callback_id = callback.id
+    	JOIN payload ON callback.registered_payload_id = payload.id
+    	JOIN payloadtype ON payload.payload_type_id = payloadtype.id
+    	WHERE task.id=$1`, taskID)
+	if err != nil {
 		logging.LogError(err, "Failed to get task information")
 		return data
-	} else if err := database.DB.Get(&databaseTask.CommandName, `SELECT cmd FROM command WHERE id=$1`, databaseTask.CommandID); err != nil {
+	}
+	err = database.DB.Get(&databaseTask.CommandName, `SELECT cmd FROM command WHERE id=$1`, databaseTask.CommandID)
+	if err != nil {
 		logging.LogError(err, "Failed to get command name for task information")
-	} else if taskJSON, err := json.Marshal(databaseTask); err != nil {
-		logging.LogError(err, "Failed to marshal task data into JSON")
 		return data
-	} else if err := json.Unmarshal(taskJSON, &data); err != nil {
-		logging.LogError(err, "Failed to unmarshal task JSON data to GetTaskMessageTaskInformation ")
-	} else if databaseTask.TokenID.Valid {
-		if err := database.DB.Get(&data.TokenID, `SELECT token_id FROM token WHERE id=$1`, databaseTask.TokenID.Int64); err != nil {
+	}
+	data = PTTaskMessageTaskData{
+		ID:                                 databaseTask.ID,
+		DisplayID:                          databaseTask.DisplayID,
+		AgentTaskID:                        databaseTask.AgentTaskID,
+		CommandName:                        databaseTask.CommandName,
+		Params:                             databaseTask.Params,
+		Timestamp:                          databaseTask.Timestamp.String(),
+		CallbackID:                         databaseTask.CallbackID,
+		CallbackDisplayID:                  databaseTask.Callback.DisplayID,
+		PayloadType:                        databaseTask.Callback.Payload.Payloadtype.Name,
+		Status:                             databaseTask.Status,
+		OriginalParams:                     databaseTask.OriginalParams,
+		DisplayParams:                      databaseTask.DisplayParams,
+		Comment:                            databaseTask.Comment,
+		Stdout:                             databaseTask.Stdout,
+		Stderr:                             databaseTask.Stderr,
+		Completed:                          databaseTask.Completed,
+		OperatorUsername:                   databaseTask.Operator.Username,
+		OperatorID:                         databaseTask.OperatorID,
+		OpsecPreBlocked:                    databaseTask.OpsecPreBlocked.Bool,
+		OpsecPreMessage:                    databaseTask.OpsecPreMessage,
+		OpsecPreBypassed:                   databaseTask.OpsecPreBypassed,
+		OpsecPreBypassRole:                 databaseTask.OpsecPreBypassRole,
+		OpsecPostBlocked:                   databaseTask.OpsecPostBlocked.Bool,
+		OpsecPostMessage:                   databaseTask.OpsecPostMessage,
+		OpsecPostBypassed:                  databaseTask.OpsecPostBypassed,
+		OpsecPostBypassRole:                databaseTask.OpsecPostBypassRole,
+		ParentTaskID:                       int(databaseTask.ParentTaskID.Int64),
+		SubtaskCallbackFunction:            databaseTask.SubtaskCallbackFunction,
+		SubtaskCallbackFunctionCompleted:   databaseTask.SubtaskCallbackFunctionCompleted,
+		GroupCallbackFunction:              databaseTask.GroupCallbackFunction,
+		GroupCallbackFunctionCompleted:     databaseTask.GroupCallbackFunctionCompleted,
+		CompletedCallbackFunction:          databaseTask.CompletedCallbackFunction,
+		CompletedCallbackFunctionCompleted: databaseTask.CompletedCallbackFunctionCompleted,
+		SubtaskGroupName:                   databaseTask.SubtaskGroupName,
+		TaskingLocation:                    databaseTask.TaskingLocation,
+		ParameterGroupName:                 databaseTask.ParameterGroupName,
+		IsInteractiveTask:                  databaseTask.IsInteractiveTask,
+		InteractiveTaskType:                int(databaseTask.InteractiveTaskType.Int64),
+		EventStepInstanceId:                int(databaseTask.EventStepInstanceID.Int64),
+	}
+	if databaseTask.TokenID.Valid {
+		err = database.DB.Get(&data.TokenID, `SELECT token_id FROM token WHERE id=$1`, databaseTask.TokenID.Int64)
+		if err != nil {
 			logging.LogError(err, "Failed to get token information")
 		}
 	}
-	data.OperatorUsername = databaseTask.Operator.Username
 	return data
 }
 
@@ -904,18 +1107,71 @@ func getTaskMessagePayloadInformation(payloadID int) PTTaskMessagePayloadData {
 	data.PayloadType = databaseData.Payloadtype.Name
 	return data
 }
+func GetSecrets(userID int, eventStepInstanceId int) map[string]interface{} {
+	secrets := make(map[string]interface{})
 
+	user := databaseStructs.Operator{}
+	err := database.DB.Get(&user, `SELECT secrets FROM operator WHERE id=$1`, userID)
+	if err != nil {
+		logging.LogError(err, "Failed to get user secrets", "user_id", userID)
+	} else {
+		for key, value := range user.Secrets.StructValue() {
+			secrets[key] = value
+		}
+	}
+	if eventStepInstanceId > 0 {
+		eventStepInstance := databaseStructs.EventStepInstance{}
+		err = database.DB.Get(&eventStepInstance, `SELECT environment, inputs FROM eventstepinstance WHERE id=$1`, eventStepInstanceId)
+		if err != nil {
+			logging.LogError(err, "failed to get event step instance environment and inputs")
+		} else {
+			for key, value := range eventStepInstance.Environment.StructValue() {
+				secrets[key] = value
+			}
+			for key, value := range eventStepInstance.Inputs.StructValue() {
+				secrets[key] = value
+			}
+			secrets["EVENT_STEP_INSTANCE_ID"] = eventStepInstanceId
+		}
+	}
+	return secrets
+}
 func GetTaskConfigurationForContainer(taskID int) PTTaskMessageAllData {
 	taskMessage := PTTaskMessageAllData{
 		Task: GetTaskMessageTaskInformation(taskID),
 	}
+	taskMessage.Secrets = GetSecrets(taskMessage.Task.OperatorID, taskMessage.Task.EventStepInstanceId)
 	taskMessage.Callback = GetTaskMessageCallbackInformation(taskMessage.Task.CallbackID)
 	taskMessage.Payload = getTaskMessagePayloadInformation(taskMessage.Callback.RegisteredPayloadID)
 	taskMessage.Commands = GetTaskMessageCommandList(taskMessage.Task.CallbackID)
 	taskMessage.C2Profiles = GetTaskMessageCallbackC2ProfileInformation(taskMessage.Task.CallbackID)
 	taskMessage.BuildParameters = *GetBuildParameterInformation(taskMessage.Callback.RegisteredPayloadID)
 	taskMessage.PayloadType = taskMessage.Payload.PayloadType
+	commandPayloadType := databaseStructs.Task{}
+	err := database.DB.Get(&commandPayloadType, `SELECT 
+    payloadtype.name "command.payloadtype.name"
+    FROM task 
+    JOIN command ON task.command_id = command.id
+    JOIN payloadtype ON command.payload_type_id = payloadtype.id
+    WHERE task.id=$1`, taskID)
+	if err != nil {
+		logging.LogError(err, "failed to get payload type information from task")
+		taskMessage.CommandPayloadType = taskMessage.PayloadType
+	} else {
+		taskMessage.CommandPayloadType = commandPayloadType.Command.Payloadtype.Name
+	}
 	return taskMessage
+}
+func GetOnNewCallbackConfigurationForContainer(callbackId int) PTOnNewCallbackAllData {
+	callbackMessage := PTOnNewCallbackAllData{}
+	callbackMessage.Callback = GetTaskMessageCallbackInformation(callbackId)
+	callbackMessage.Payload = getTaskMessagePayloadInformation(callbackMessage.Callback.RegisteredPayloadID)
+	callbackMessage.Commands = GetTaskMessageCommandList(callbackId)
+	callbackMessage.C2Profiles = GetTaskMessageCallbackC2ProfileInformation(callbackId)
+	callbackMessage.BuildParameters = *GetBuildParameterInformation(callbackMessage.Callback.RegisteredPayloadID)
+	callbackMessage.PayloadType = callbackMessage.Payload.PayloadType
+	callbackMessage.Secrets = GetSecrets(callbackMessage.Callback.OperatorID, 0)
+	return callbackMessage
 }
 
 // save file to disk
@@ -942,7 +1198,6 @@ func GetSaveFilePath() (string, string, error) {
 	}
 	return "", "", errors.New("Failed to create file on disk")
 }
-
 func SendAllOperationsMessage(message string, operationID int, source string, messageLevel database.MESSAGE_LEVEL) {
 	/*
 		Send a message to all operation's event logs if operationID is 0, otherwise just send it to the specific operation.
@@ -968,9 +1223,9 @@ func SendAllOperationsMessage(message string, operationID int, source string, me
 				SELECT id, count, "message", source FROM operationeventlog WHERE
 				level='warning' and source=$1 and operation_id=$2 and resolved=false and deleted=false
 				`, sourceString, operation.ID); err != nil {
-					if err != sql.ErrNoRows {
+					if !errors.Is(err, sql.ErrNoRows) {
 						logging.LogError(err, "Failed to query existing event log message")
-					} else if err == sql.ErrNoRows {
+					} else if errors.Is(err, sql.ErrNoRows) {
 						newMessage := databaseStructs.Operationeventlog{
 							Source:      sourceString,
 							Level:       messageLevel,
@@ -984,7 +1239,6 @@ func SendAllOperationsMessage(message string, operationID int, source string, me
 						(:source, :level, :message, :operation_id, :count)`, newMessage); err != nil {
 							logging.LogError(err, "Failed to create new operationeventlog message")
 						} else {
-
 							go RabbitMQConnection.EmitWebhookMessage(WebhookMessage{
 								OperationID:      operation.ID,
 								OperationName:    operation.Name,
@@ -999,6 +1253,13 @@ func SendAllOperationsMessage(message string, operationID int, source string, me
 									"timestamp": time.Now().UTC(),
 								},
 							})
+							EventingChannel <- EventNotification{
+								Trigger:     eventing.TriggerAlert,
+								OperationID: operation.ID,
+								Outputs: map[string]interface{}{
+									"alert": newMessage.Message,
+								},
+							}
 
 						}
 					}

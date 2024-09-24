@@ -3,17 +3,18 @@ package internal
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
 
-func runGitClone(args []string) error {
+func runGitClone(args []string, displayOutput bool) error {
 	if lookPath, err := exec.LookPath("git"); err != nil {
-		fmt.Printf("[-] git is not installed or not available in the current PATH variable")
+		log.Printf("[-] git is not installed or not available in the current PATH variable")
 		return err
 	} else if exe, err := os.Executable(); err != nil {
-		fmt.Printf("[-] Failed to get lookPath to current executable")
+		log.Printf("[-] Failed to get lookPath to current executable")
 		return err
 	} else {
 		exePath := filepath.Dir(exe)
@@ -21,32 +22,36 @@ func runGitClone(args []string) error {
 
 		command := exec.Command(lookPath, args...)
 		command.Dir = exePath
-		command.Env = getMythicEnvList()
+		//command.Env = getMythicEnvList()
 
 		if stdout, err := command.StdoutPipe(); err != nil {
-			fmt.Printf("[-] Failed to get stdout pipe for running git")
+			log.Printf("[-] Failed to get stdout pipe for running git")
 			return err
 		} else if stderr, err := command.StderrPipe(); err != nil {
-			fmt.Printf("[-] Failed to get stderr pipe for running git")
+			log.Printf("[-] Failed to get stderr pipe for running git")
 			return err
 		} else {
 			stdoutScanner := bufio.NewScanner(stdout)
 			stderrScanner := bufio.NewScanner(stderr)
 			go func() {
 				for stdoutScanner.Scan() {
-					fmt.Printf("%s\n", stdoutScanner.Text())
+					if displayOutput {
+						fmt.Printf("%s\n", stdoutScanner.Text())
+					}
 				}
 			}()
 			go func() {
 				for stderrScanner.Scan() {
-					fmt.Printf("%s\n", stderrScanner.Text())
+					if displayOutput {
+						fmt.Printf("%s\n", stderrScanner.Text())
+					}
 				}
 			}()
 			if err = command.Start(); err != nil {
-				fmt.Printf("[-] Error trying to start git: %v\n", err)
+				log.Printf("[-] Error trying to start git: %v\n", err)
 				return err
 			} else if err = command.Wait(); err != nil {
-				fmt.Printf("[-] Error trying to run git: %v\n", err)
+				log.Printf("[-] Error trying to run git: %v\n", err)
 				return err
 			}
 		}
@@ -55,10 +60,10 @@ func runGitClone(args []string) error {
 }
 func runGitLsRemote(args []string) (err error) {
 	if lookPath, err := exec.LookPath("git"); err != nil {
-		fmt.Printf("[-] git is not installed or not available in the current PATH variable")
+		log.Printf("[-] git is not installed or not available in the current PATH variable")
 		return err
 	} else if exe, err := os.Executable(); err != nil {
-		fmt.Printf("[-] Failed to get lookPath to current executable")
+		log.Printf("[-] Failed to get lookPath to current executable")
 		return err
 	} else {
 		exePath := filepath.Dir(exe)
@@ -66,11 +71,11 @@ func runGitLsRemote(args []string) (err error) {
 		//  git ls-remote URL HEAD
 		command := exec.Command(lookPath, args...)
 		command.Dir = exePath
-		command.Env = getMythicEnvList()
+		//command.Env = getMythicEnvList()
 		command.Env = append(command.Env, "GIT_TERMINAL_PROMPT=0")
 
 		if err = command.Run(); err != nil {
-			fmt.Printf("[-] Error trying to start git: %v\n", err)
+			log.Printf("[-] Error trying to start git: %v\n", err)
 			return err
 		} else {
 			return nil

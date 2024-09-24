@@ -1,6 +1,5 @@
 import React from 'react';
-import { styled } from '@mui/material/styles';
-import Card from '@mui/material/Card';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import Typography from '@mui/material/Typography';
 import {FontAwesomeIcon} from '@fortawesome/react-fontawesome';
 import { faLanguage } from '@fortawesome/free-solid-svg-icons';
@@ -14,6 +13,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import RestoreFromTrashOutlinedIcon from '@mui/icons-material/RestoreFromTrashOutlined';
 import TableRow from '@mui/material/TableRow';
 import MythicTableCell from "../../MythicComponents/MythicTableCell";
+import {MythicStyledTooltip} from "../../MythicComponents/MythicStyledTooltip";
+import {MythicDialog} from "../../MythicComponents/MythicDialog";
+import {C2ProfileListFilesDialog} from "./C2ProfileListFilesDialog";
 
 const PREFIX = 'TranslationContainerCard';
 
@@ -25,39 +27,6 @@ const classes = {
   notrunning: `${PREFIX}-notrunning`
 };
 
-const StyledCard = styled(Card)((
-  {
-    theme
-  }
-) => ({
-  [`&.${classes.root}`]: {
-    width: "100%",
-    display: "flex",
-    marginBottom: "10px"
-  },
-
-  [`& .${classes.expand}`]: {
-    transform: 'rotate(0deg)',
-    marginLeft: 'auto',
-    transition: theme.transitions.create('transform', {
-      duration: theme.transitions.duration.shortest,
-    }),
-  },
-
-  [`& .${classes.expandOpen}`]: {
-    transform: 'rotate(180deg)',
-  },
-
-  [`& .${classes.running}`]: {
-    backgroundColor: '#44b700',
-    color: '#44b700',
-  },
-
-  [`& .${classes.notrunning}`]: {
-    backgroundColor: 'red',
-    color: 'red',
-  }
-}));
 
 const toggleDeleteStatus = gql`
 mutation toggleC2ProfileDeleteStatus($translationcontainer_id: Int!, $deleted: Boolean!){
@@ -69,7 +38,7 @@ mutation toggleC2ProfileDeleteStatus($translationcontainer_id: Int!, $deleted: B
 
 export function TranslationContainerRow({service, showDeleted}) {
   const theme = useTheme();
-
+  const [openListFilesDialog, setOpenListFilesDialog] = React.useState(false);
   const [openDelete, setOpenDeleteDialog] = React.useState(false);
   const [updateDeleted] = useMutation(toggleDeleteStatus, {
       onCompleted: data => {
@@ -128,14 +97,31 @@ export function TranslationContainerRow({service, showDeleted}) {
                 </Typography>
             </MythicTableCell>
             <MythicTableCell>
-                <IconButton
-                    color={"secondary"}
-                    href={"/docs/c2-profiles/" + service.name.toLowerCase()}
-                    target="_blank"
-                    size="large">
-                    <MenuBookIcon />
-                </IconButton>
+                <MythicStyledTooltip title={"Documentation"}>
+                    <IconButton
+                        color={"secondary"}
+                        href={"/docs/c2-profiles/" + service.name.toLowerCase()}
+                        target="_blank"
+                        size="large">
+                        <MenuBookIcon />
+                    </IconButton>
+                </MythicStyledTooltip>
+                <MythicStyledTooltip title={service.container_running ? "View Files" : "Unable to view files because container is offline"}>
+                    <IconButton
+                        color={"secondary"}
+                        disabled={!service.container_running}
+                        onClick={()=>{setOpenListFilesDialog(true);}}
+                        size="large">
+                        <AttachFileIcon />
+                    </IconButton>
+                </MythicStyledTooltip>
             </MythicTableCell>
+            {openListFilesDialog &&
+                <MythicDialog fullWidth={true} maxWidth="md" open={openListFilesDialog}
+                              onClose={()=>{setOpenListFilesDialog(false);}}
+                              innerDialog={<C2ProfileListFilesDialog container_name={service.name} {...service} onClose={()=>{setOpenListFilesDialog(false);}} />}
+                />
+            }
         </TableRow>
 
   );

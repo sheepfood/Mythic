@@ -1,8 +1,11 @@
 package utils
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
+	"math/big"
 	"strings"
 )
 
@@ -29,9 +32,9 @@ func SliceContains[V string | int](source []V, check V) bool {
 }
 
 type AnalyzedPath struct {
-	PathPieces    []string
-	PathSeparator string
-	Host          string
+	PathPieces    []string `json:"path_pieces"`
+	PathSeparator string   `json:"path_separator"`
+	Host          string   `json:"host"`
 }
 
 func SplitFilePathGetHost(parentPath string, currentPath string, additionalPaths []string) (AnalyzedPath, error) {
@@ -85,12 +88,14 @@ func SplitFilePathGetHost(parentPath string, currentPath string, additionalPaths
 		} else if strings.Contains(currentPath, "/") {
 			returnedPathInfo.PathSeparator = "/"
 		} else {
-			// unable to determine, so assuming parent path is windodws
+			// unable to determine, so assuming parent path is windows
 			returnedPathInfo.PathSeparator = "\\"
 		}
 	} else {
-		err := errors.New(fmt.Sprintf("invalid absolute path format: %s", parentPath))
-		return returnedPathInfo, err
+		// treat this as if this is a windows path with this being the name of an unknown share
+		returnedPathInfo.PathSeparator = "\\"
+		stringSplit := strings.Split(parentPath, "\\")
+		returnedPathInfo.PathPieces = append(stringSplit[:], returnedPathInfo.PathPieces...)
 	}
 	// remove potential blank spots from pathPieces
 	if SliceContains(returnedPathInfo.PathPieces, "") {
@@ -105,4 +110,29 @@ func SplitFilePathGetHost(parentPath string, currentPath string, additionalPaths
 		returnedPathInfo.PathPieces = newPathPieces
 	}
 	return returnedPathInfo, nil
+}
+
+func GenerateRandomPassword(pwLength int) string {
+	chars := []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*().,<>?/|")
+	var b strings.Builder
+	for i := 0; i < pwLength; i++ {
+		nBig, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			log.Fatalf("[-] Failed to generate random number for password generation\n")
+		}
+		b.WriteRune(chars[nBig.Int64()])
+	}
+	return b.String()
+}
+func GenerateRandomAlphaNumericString(pwLength int) string {
+	chars := []rune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+	var b strings.Builder
+	for i := 0; i < pwLength; i++ {
+		nBig, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			log.Fatalf("[-] Failed to generate random number for password generation\n")
+		}
+		b.WriteRune(chars[nBig.Int64()])
+	}
+	return b.String()
 }

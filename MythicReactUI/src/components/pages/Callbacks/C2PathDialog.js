@@ -13,7 +13,8 @@ import { Typography } from '@mui/material';
 import ReactFlow, {
     applyEdgeChanges, applyNodeChanges,
     Handle, Position, useReactFlow, ReactFlowProvider, Panel,
-    MiniMap, Controls, ControlButton, useUpdateNodeInternals
+    MiniMap, Controls, ControlButton, useUpdateNodeInternals,
+    getConnectedEdges
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { toPng, toSvg } from 'html-to-image';
@@ -22,13 +23,20 @@ import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import SwapCallsIcon from '@mui/icons-material/SwapCalls';
 import {snackActions} from "../../utilities/Snackbar";
 import {TaskLabelFlat, getLabelText} from './TaskDisplay';
-import {MythicDialog} from "../../MythicComponents/MythicDialog";
+import {MythicDialog, MythicViewJSONAsTableDialog} from "../../MythicComponents/MythicDialog";
 import {MythicSelectFromListDialog} from "../../MythicComponents/MythicSelectFromListDialog";
 import {ManuallyAddEdgeDialog} from "./ManuallyAddEdgeDialog";
 import {TaskParametersDialog} from "./TaskParametersDialog";
 import {addEdgeMutation, createTaskingMutation, hideCallbackMutation, removeEdgeMutation} from "./CallbackMutations";
 import {loadedLinkCommandsQuery} from "./CallbacksGraph";
 import {useMutation, gql, useLazyQuery } from '@apollo/client';
+import {TaskFromUIButton} from "./TaskFromUIButton";
+import {MythicDisplayTextDialog} from "../../MythicComponents/MythicDisplayTextDialog";
+import {ResponseDisplayTableDialogTable} from "./ResponseDisplayTableDialogTable";
+import SendIcon from '@mui/icons-material/Send';
+import {getIconName} from "./ResponseDisplayTable";
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 
 const ITEM_HEIGHT = 48;
 const ITEM_PADDING_TOP = 8;
@@ -321,6 +329,7 @@ export function C2PathDialog({callback, callbackgraphedges, onClose, onOpenTab})
                 />
             }
             <DrawC2PathElementsFlowWithProvider
+                providedNodes={[callback]}
                 edges={callbackgraphedges}
                 view_config={viewConfig}
                 theme={theme}
@@ -335,7 +344,7 @@ export function C2PathDialog({callback, callbackgraphedges, onClose, onOpenTab})
     </>
   );
 }
-const getSourcePosition = (direction) => {
+export const getSourcePosition = (direction) => {
     if(direction === "RIGHT"){
         return Position.Right
     } else if(direction === "LEFT"){
@@ -348,7 +357,7 @@ const getSourcePosition = (direction) => {
         return Position.Top
     }
 }
-const getTargetPosition = (direction) => {
+export const getTargetPosition = (direction) => {
     if(direction === "RIGHT"){
         return Position.Left
     } else if(direction === "LEFT"){
@@ -362,6 +371,7 @@ const getTargetPosition = (direction) => {
     }
 }
 function AgentNode({data}) {
+    const theme = useTheme();
     const sourcePosition = getSourcePosition(data["elk.direction"]);
     const targetPosition = getTargetPosition(data["elk.direction"]);
     const getOffset = (index) => {
@@ -373,8 +383,12 @@ function AgentNode({data}) {
         return {[offsetComponents.location]: (size * index) + (size / 2)}
 
     }
+    const additionalStyles = data?.selected ? {
+        boxShadow: `3px 3px 5px 0px ${theme.palette.secondary.main}, inset 0px 0px 60px 0px ${theme.palette.info.main}`,
+        borderRadius: "20px"
+    } : {};
     return (
-        <div style={{padding: 0, margin: 0}}>
+        <div style={{padding: 0, margin: 0, ...additionalStyles}}>
             {
                 [...Array(data.sourceCount)].map((e, i) => (
                     <Handle type={"source"} id={`${i+1}`} key={`${i+1}`} style={data.sourceCount > 1 ? getOffset(i) : {}} position={sourcePosition} />
@@ -402,7 +416,27 @@ function TaskNode({data}) {
         </div>
     )
 }
-function GroupNode({data}) {
+function BrowserscriptNode({data}) {
+    const theme = useTheme();
+    const sourcePosition = getSourcePosition(data["elk.direction"]);
+    const targetPosition = getTargetPosition(data["elk.direction"]);
+    const additionalStyles = data?.selected ? {
+        boxShadow: `5px 5px 25px 5px ${theme.palette.info.main}, inset 0px 0px 60px 0px ${theme.palette.info.main}`,
+        borderRadius: "20px"
+    } : {};
+    return (
+        <div style={{padding: 0, margin: 0, display: "flex", flexDirection: "column", ...additionalStyles}}>
+            <Handle type={"source"} position={sourcePosition} />
+            {data.img}
+            <div style={{top: 0, right: 0, height: "50%", width: "50%", position: "absolute"}}>
+                {data.overlay_img}
+            </div>
+            <Handle type={"target"} position={targetPosition} />
+            <Typography style={{textAlign: "center", margin: 0, padding: 0}} >{data.data.label}</Typography>
+        </div>
+    )
+}
+export function GroupNode({data}) {
     const sourcePosition = getSourcePosition(data["elk.direction"]);
     const targetPosition = getTargetPosition(data["elk.direction"]);
     return (
@@ -417,12 +451,18 @@ function GroupNode({data}) {
 
     )
 }
-const nodeTypes = { "agentNode": AgentNode, "groupNode": GroupNode, "taskNode": TaskNode };
+const nodeTypes = { "agentNode": AgentNode, "groupNode": GroupNode, "taskNode": TaskNode, "browserscriptNode": BrowserscriptNode };
 
 const elk = new ELK();
 const getWidth = (node) => {
     if(node.type === "taskNode"){
         return getTaskWidth(node);
+    }
+    if(node.type === "browserscriptNode"){
+        return getBrowserscriptWidth(node);
+    }
+    if(node.type === "eventNode"){
+        return getEventNodeWidth(node);
     }
     return Math.max(100, node.data.label.length * 7);
 }
@@ -433,13 +473,29 @@ const getTaskWidth = (node) => {
     }
     return Math.max(325, (nodeText.length * 8) + 10)
 }
+const getEventNodeWidth = (node) => {
+    return (node.maxNameLength * 8) + 10 + 100;
+}
+const getBrowserscriptWidth = (node) => {
+    let nodeText = " ";
+    if(node?.data?.width){
+        return node.data.width;
+    }
+    if(node?.data?.label){
+        nodeText = getLabelText(node.data, true);
+    }
+    return Math.max(100, (nodeText.length * 10) + 10)
+}
 const getHeight = (node) => {
     if(node.hidden){
         return 0;
     }
+    if(node.type === "eventNode"){
+        return 20;
+    }
     return 80;
 }
-export default async function createLayout({initialGroups, initialNodes, initialEdges, alignment}) {
+export default async function createLayout({initialGroups, initialNodes, initialEdges, alignment, elkOverwrites}) {
     let elkAlignment = {
         "elk.alignment": "RIGHT" , //LEFT, RIGHT, TOP, BOTTOM, CENTER
         "elk.direction": "RIGHT" , //DOWN, LEFT, RIGHT, UP
@@ -454,6 +510,14 @@ export default async function createLayout({initialGroups, initialNodes, initial
             "elk.alignment": "BOTTOM", //LEFT, RIGHT, TOP, BOTTOM, CENTER
             "elk.direction": "DOWN", //DOWN, LEFT, RIGHT, UP
         }
+    }else if(alignment === "RL"){
+        elkAlignment = {
+            "elk.alignment": "RIGHT" , //LEFT, RIGHT, TOP, BOTTOM, CENTER
+            "elk.direction": "LEFT" , //DOWN, LEFT, RIGHT, UP
+        }
+    }
+    if(elkOverwrites === undefined){
+        elkOverwrites = {};
     }
     const options = {
         "elk.algorithm": "layered",
@@ -472,6 +536,7 @@ export default async function createLayout({initialGroups, initialNodes, initial
         "elk.layered.spacing.edgeEdgeBetweenLayers": 20,
         "elk.layered.spacing.edgeNodeBetweenLayers": 40,
         "elk.layered.spacing.baseValue": 40,
+        ...elkOverwrites
     }
     const graph = {
         id: "root",
@@ -621,9 +686,11 @@ export const DrawC2PathElementsFlowWithProvider = (props) => {
         </ReactFlowProvider>
     )
 }
-export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contextMenu}) =>{
+export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contextMenu, providedNodes}) =>{
     const [graphData, setGraphData] = React.useState({nodes: [], edges: [], groups: []});
     const [nodes, setNodes] = React.useState();
+    const selectedNodes = React.useRef([]);
+    const extraNodes = React.useRef(providedNodes);
     const [edgeFlow, setEdgeFlow] = React.useState([]);
     const [openContextMenu, setOpenContextMenu] = React.useState(false);
     const [contextMenuCoord, setContextMenuCord] = React.useState({});
@@ -644,7 +711,7 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
         // we then overwrite the transform of the `.react-flow__viewport` element
         // with the style option of the html-to-image library
         snackActions.info("Saving image to svg...");
-        toSvg(document.querySelector('.react-flow__viewport'), {
+        toSvg(viewportRef.current, {
             width: viewportRef.current.offsetWidth,
             height: viewportRef.current.offsetHeight,
             style: {
@@ -663,7 +730,7 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
         // we then overwrite the transform of the `.react-flow__viewport` element
         // with the style option of the html-to-image library
         snackActions.info("Saving image to png...");
-        toPng(document.querySelector('.react-flow__viewport'), {
+        toPng(viewportRef.current, {
             width: viewportRef.current.offsetWidth,
             height: viewportRef.current.offsetHeight,
             style: {
@@ -692,7 +759,69 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
     }, [contextMenu])
     const onPaneClick = useCallback( () => {
         setOpenContextMenu(false);
-    }, [setOpenContextMenu])
+        selectedNodes.current = [];
+        const updatedEdges = graphData.edges.map( e => {
+            return {...e,
+                animated: e.oldAnimated ? e.oldAnimated : e.animated,
+                style: e.oldStyle ? e.oldStyle : e.style,
+                oldAnimated: null,
+                oldStyle: null
+            }
+        });
+        setEdgeFlow(updatedEdges);
+        const updatedNodes = nodes.map( n => {
+            return {...n, data: {...n.data, selected: false}};
+        });
+        setNodes(updatedNodes);
+        //setGraphData({...graphData, edges: updatedEdges});
+    }, [setOpenContextMenu, graphData, selectedNodes.current, nodes]);
+    const onNodeSelected = useCallback( (event, node) => {
+        if(event.shiftKey){
+            let alreadySelected = selectedNodes.current.filter( s => s.id === node.id).length > 0;
+            if(alreadySelected){
+                selectedNodes.current = selectedNodes.current.filter(s => s.id !== node.id);
+            } else {
+                selectedNodes.current.push(node);
+            }
+        } else {
+            selectedNodes.current = [node];
+        }
+        const connectedEdges = getConnectedEdges(selectedNodes.current, graphData.edges);
+        const updatedEdges = graphData.edges.map( e => {
+            let included = connectedEdges.filter( ce => ce.id === e.id).length > 0;
+            if(included){
+                return {...e,
+                    animated: e.animated,
+                    oldAnimated: e.oldAnimated ? e.oldAnimated : e.animated,
+                    oldStyle: e.oldStyle ? e.oldStyle : e.style,
+                    style: {
+                        stroke: e.style.stroke,
+                        strokeWidth: 4,
+                    }
+                }
+            } else {
+                return {...e,
+                    animated: false,
+                    oldAnimated: e.oldAnimated  ? e.oldAnimated : e.animated,
+                    oldStyle: e.oldStyle ? e.oldStyle : e.style,
+                    style: {
+                        stroke: theme.palette.secondary.main,
+                        strokeWidth: 0.25,
+                    }
+                }
+            }
+        })
+        setEdgeFlow(updatedEdges);
+        const updatedNodes = nodes.map( n => {
+            let isSelected = selectedNodes.current.filter( s => s.id === n.id).length > 0;
+            if(isSelected){
+                return {...n, data: {...n.data, selected: true}};
+            } else {
+                return {...n, data: {...n.data, selected: false}};
+            }
+        });
+        setNodes(updatedNodes);
+    }, [graphData, nodes, selectedNodes.current])
     React.useEffect( () => {
         let tempNodes = [{
             id: "Mythic",
@@ -761,13 +890,13 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
                         position: { x: 0, y: 0 },
                         type: "agentNode",
                         height: 50,
-                        width: 100,
+                        width: 50,
                         parentNode: shouldUseGroups(view_config) ? groupByValue : null,
                         group: shouldUseGroups(view_config) ? groupByValue : null,
                         extent: shouldUseGroups(view_config) ? "parent" : null,
                         data: {
                             label: getLabel(node, view_config["label_components"]),
-                            img: "/static/" + node.payload.payloadtype.name + ".svg",
+                            img: "/static/" + node.payload.payloadtype.name + "_" + theme.palette.mode + ".svg",
                             isMythic: false,
                             callback_id: node.id,
                             display_id: node.display_id,
@@ -1012,6 +1141,13 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
             }
             return tempNewEdges
         }
+        if(extraNodes.current){
+            for(let i = 0; i < extraNodes.current.length; i++){
+                if(view_config["include_disconnected"]) {
+                    add_node(extraNodes.current[i], view_config);
+                }
+            }
+        }
         let updatedEdges = createNewEdges();
         // need to add fake edges between parent groups and Mythic so that rendering will be preserved
         updatedEdges.forEach( (edge) => {
@@ -1159,10 +1295,10 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
                 })
             }
         }
-        for(let i = 0; i < tempNodes.length; i++){
+        for(let i = 0; i < tempNodes.length; i++) {
             let sourceCount = 0;
-            for(let j = 0; j < tempEdges.length; j++){
-                if(tempEdges[j].source === tempNodes[i].id){
+            for (let j = 0; j < tempEdges.length; j++) {
+                if (tempEdges[j].source === tempNodes[i].id) {
                     sourceCount += 1;
                     tempEdges[j].sourceHandle = `${sourceCount}`;
                 }
@@ -1211,6 +1347,7 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
                     nodeTypes={nodeTypes}
                     onPaneClick={onPaneClick}
                     onNodeContextMenu={onNodeContextMenu}
+                    onNodeClick={onNodeSelected}
                 >
                     <Panel position={"top-left"} >{panel}</Panel>
                     <Controls showInteractive={false} >
@@ -1221,12 +1358,12 @@ export const DrawC2PathElementsFlow = ({edges, panel, view_config, theme, contex
                             <InsertPhotoIcon />
                         </ControlButton>
                     </Controls>
-                    <MiniMap pannable={true} />
+                    <MiniMap pannable={true} zoomable={true}  />
                 </ReactFlow>
             {openContextMenu &&
             <div style={{...contextMenuCoord, position: "fixed"}} className="context-menu">
                 {contextMenu.map( (m) => (
-                    <Button key={m.title} variant={"contained"} className="context-menu-button" onClick={() => {
+                    <Button key={m.title} color={"info"} className="context-menu-button" onClick={() => {
                         m.onClick(contextMenuNode.current);
                         setOpenContextMenu(false);
                     }}>{m.title}</Button>
@@ -1528,9 +1665,9 @@ export const DrawTaskElementsFlow = ({edges, panel, view_config, theme, contextM
                 </Controls>
             </ReactFlow>
             {openContextMenu &&
-                <div style={{...contextMenuCoord}} className="context-menu">
+                <div style={{...contextMenuCoord, position: "fixed"}} className="context-menu">
                     {contextMenu.map( (m) => (
-                        <Button key={m.title} variant={"contained"} className="context-menu-button" onClick={() => {
+                        <Button key={m.title} color={"info"} className="context-menu-button" onClick={() => {
                             m.onClick(contextMenuNode.current);
                             setOpenContextMenu(false);
                         }}>{m.title}</Button>
@@ -1542,3 +1679,723 @@ export const DrawTaskElementsFlow = ({edges, panel, view_config, theme, contextM
     )
 }
 
+const getGroupBrowserscriptBy = (node, view_config) => {
+    if(view_config.group_by === undefined){return ""}
+    if(view_config.group_by === "None" || view_config.group_by === ""){return ""}
+    try{
+        return node?.[view_config["group_by"]] || "";
+    }catch(error){
+        console.log(error)
+    }
+}
+export const DrawBrowserScriptElementsFlowWithProvider = (props) => {
+    return (
+        <ReactFlowProvider>
+            <DrawBrowserScriptElementsFlow {...props} />
+        </ReactFlowProvider>
+    )
+}
+const DrawBrowserScriptElementsFlow = ({edges, panel, view_config, theme, contextMenu, providedNodes, task}) => {
+    const [graphData, setGraphData] = React.useState({nodes: [], edges: [], groups: [], view_config});
+    const selectedNodes = React.useRef([]);
+    const selectedEdges = React.useRef([]);
+    const [localContextMenu, setLocalContextMenu] = React.useState(contextMenu);
+    const [openTaskingButton, setOpenTaskingButton] = React.useState(false);
+    const [openDictionaryButton, setOpenDictionaryButton] = React.useState(false);
+    const [openStringButton, setOpenStringButton] = React.useState(false);
+    const [openTableButton, setOpenTableButton] = React.useState(false);
+    const [taskingData, setTaskingData] = React.useState({});
+    const finishedTasking = () => {
+        setOpenTaskingButton(false);
+        setOpenDictionaryButton(false);
+        setOpenStringButton(false);
+        setOpenTableButton(false);
+        setTaskingData({});
+    }
+    const [nodes, setNodes] = React.useState([]);
+    const [edgeFlow, setEdgeFlow] = React.useState([]);
+    const [openContextMenu, setOpenContextMenu] = React.useState(false);
+    const [contextMenuCoord, setContextMenuCord] = React.useState({});
+    const viewportRef = React.useRef(null);
+    const contextMenuNode = React.useRef(null);
+    const [localViewConfig, setLocalViewConfig] = React.useState(view_config);
+    const {fitView} = useReactFlow();
+    const updateNodeInternals = useUpdateNodeInternals();
+    const onNodesChange = useCallback(
+        (changes) => {
+            setNodes((nds) => applyNodeChanges(changes, nds));
+        },
+        []
+    );
+    const onEdgesChange = useCallback(
+        (changes) => setEdgeFlow((eds) => applyEdgeChanges(changes, eds)),
+        []
+    );
+    const onPaneContextMenu = useCallback( (event) => {
+        event.preventDefault();
+        contextMenuNode.current = {};
+        setContextMenuCord({
+            top:  event.clientY,
+            left:  event.clientX,
+        });
+        let tempContextMenu = [{
+            title: "Unselect All",
+            onClick: function() {
+                selectedNodes.current = [];
+                selectedEdges.current = [];
+                const updatedEdges = edgeFlow.map( e => {
+                    const graphEdge = graphData.edges.filter((edge) => edge.id === e.id);
+                    if(graphEdge.length > 0){
+                        return {...graphEdge[0],
+                            animated: graphEdge[0].oldAnimated ? graphEdge[0].oldAnimated : graphEdge[0].animated,
+                            style: graphEdge[0].oldStyle ? graphEdge[0].oldStyle : graphEdge[0].style,
+                            oldAnimated: null,
+                            oldStyle: null
+                        }
+                    }
+
+                });
+                const updatedNodes = nodes.map( n => {
+                    return {...n, data: {...n.data, selected: false}};
+                });
+                setNodes(updatedNodes);
+                setEdgeFlow(updatedEdges);
+            }
+        }];
+        setLocalContextMenu(tempContextMenu);
+        setOpenContextMenu(true);
+    }, [edgeFlow, nodes, setOpenContextMenu, graphData.edges])
+    const onNodeContextMenu = useCallback( (event, node) => {
+        if(!contextMenu){return}
+        if(node.type === "groupNode"){
+            return;
+        }
+        event.preventDefault();
+        contextMenuNode.current = {...node.data, id: node.data.id};
+        setContextMenuCord({
+            top:  event.clientY,
+            left:  event.clientX,
+        });
+        let tempContextMenu = [...contextMenu, {
+            title: selectedNodes.current.length > 0 ? "Hide Selected Nodes" : "Hide Node",
+            onClick: function(node) {
+                if(selectedNodes.current.length > 0){
+                    const newEdges = edgeFlow.filter( e => {
+                        return selectedNodes.current.findIndex((node) => node.id === e.source || node.id === e.destination) < 0;
+                    })
+                    const newNodes = nodes.filter( n => {
+                        return selectedNodes.current.findIndex((node) => node.id === n.id) < 0;
+                    })
+                    setEdgeFlow(newEdges);
+                    setNodes(newNodes);
+                    selectedNodes.current = [];
+                } else {
+                    const newEdges = edgeFlow.filter( e => e.source !== node.id && e.destination !== node.id)
+                    const newNodes = nodes.filter( n => n.id !== node.id)
+                    setEdgeFlow(newEdges);
+                    setNodes(newNodes);
+                }
+            },
+        },
+            {
+                title: "Show Only Selected",
+                onClick: function (node) {
+                    if (selectedNodes.current.length > 0) {
+                        const newEdges = edgeFlow.filter(e => {
+                            return selectedEdges.current.findIndex((edge) => edge.id === e.id) >= 0;
+                        })
+                        const newNodes = nodes.filter(n => {
+                            return selectedNodes.current.findIndex((node) => node.id === n.id) >= 0;
+                        })
+                        setEdgeFlow(newEdges);
+                        setNodes(newNodes);
+                    } else {
+                        const newEdges = edgeFlow.filter(e => e.source === node.id && e.destination === node.id)
+                        const newNodes = nodes.filter(n => n.id === node.id)
+                        setEdgeFlow(newEdges);
+                        setNodes(newNodes);
+                    }
+                }
+            }
+        ];
+        if(node?.data?.buttons?.length > 0){
+            setLocalContextMenu([...tempContextMenu, ...node?.data?.buttons?.map(b => {
+                let title = b.name;
+                if( b?.startIcon){
+                    title = <><FontAwesomeIcon icon={getIconName(b?.startIcon)} style={{color: b?.startIconColor  || ""}}/> {title}</>;
+                } else if(b.type === "task"){
+                    title =  <><SendIcon fontSize={"sm"} /> {b.name}</>
+                }
+                return {
+                    title: title,
+                    key: b.name,
+                    onClick: function(node) {
+                        switch(b.type){
+                            case "task":
+                                setTaskingData(b);
+                                setOpenTaskingButton(true);
+                                break;
+                            case "dictionary":
+                                setTaskingData(b);
+                                setOpenDictionaryButton(true);
+                                break;
+                            case "string":
+                                setTaskingData(b);
+                                setOpenStringButton(true);
+                                break;
+                            case "table":
+                                setTaskingData(b);
+                                setOpenTableButton(true);
+                                break;
+                        }
+                    }
+                }
+            })]);
+        } else {
+            setLocalContextMenu([...tempContextMenu]);
+        }
+
+        setOpenContextMenu(true);
+    }, [contextMenu, edgeFlow, nodes, selectedNodes.current]);
+    const onEdgeContextMenu = useCallback( (event, edge) => {
+        event.preventDefault();
+        contextMenuNode.current = {...edge};
+        setContextMenuCord({
+            top:  event.clientY,
+            left:  event.clientX,
+        });
+        let tempContextMenu = [{
+            title: selectedEdges.current.length > 0 ? "Hide Selected Edges" : "Hide Edge",
+            onClick: function(edge) {
+                if(selectedEdges.current.length > 0){
+                    const newEdges = edgeFlow.filter( e => {
+                        return selectedEdges.current.findIndex((n) => n.id === e.id) < 0;
+                    })
+                    setEdgeFlow(newEdges);
+                } else {
+                    const newEdges = edgeFlow.filter( e => e.id !== edge.id);
+                    setEdgeFlow(newEdges);
+                }
+                selectedEdges.current = [];
+            }
+        }];
+        if(edge?.data?.buttons?.length > 0){
+            setLocalContextMenu([...tempContextMenu, ...edge?.data?.buttons?.map(b => {
+                let title = b.name;
+                if( b?.startIcon){
+                    title = <><FontAwesomeIcon icon={getIconName(b?.startIcon)} style={{color: b?.startIconColor  || ""}}/> {title}</>;
+                } else if(b.type === "task"){
+                    title =  <><SendIcon fontSize={"sm"} /> {b.name}</>
+                }
+                return {
+                    title: title,
+                    onClick: function(edge) {
+                        switch(b.type){
+                            case "task":
+                                setTaskingData(b);
+                                setOpenTaskingButton(true);
+                                break;
+                            case "dictionary":
+                                setTaskingData(b);
+                                setOpenDictionaryButton(true);
+                                break;
+                            case "string":
+                                setTaskingData(b);
+                                setOpenStringButton(true);
+                                break;
+                            case "table":
+                                setTaskingData(b);
+                                setOpenTableButton(true);
+                                break;
+                        }
+                    }
+                }
+            })]);
+        } else {
+            setLocalContextMenu([...tempContextMenu]);
+        }
+        setOpenContextMenu(true);
+    }, [edgeFlow, nodes, selectedEdges.current]);
+    const onPaneClick = useCallback( () => {
+        setOpenContextMenu(false);
+        //setGraphData({...graphData, edges: updatedEdges});
+    }, [setOpenContextMenu, edgeFlow, nodes, graphData.edges]);
+    const onNodeSelected = useCallback( (event, node) => {
+        if(event.shiftKey){
+            let alreadySelected = selectedNodes.current.filter( s => s.id === node.id).length > 0;
+            if(alreadySelected){
+                selectedNodes.current = selectedNodes.current.filter(s => s.id !== node.id);
+            } else {
+                selectedNodes.current.push(node);
+            }
+        } else {
+            selectedNodes.current = [node];
+        }
+        const connectedEdges = getConnectedEdges(selectedNodes.current, edgeFlow);
+        const updatedEdges = edgeFlow.map( e => {
+            const graphEdge = graphData.edges.filter((edge) => edge.id === e.id);
+            let included = connectedEdges.filter( ce => ce.id === e.id).length > 0;
+            if(included){
+                //this edge is supposed to be highlighted
+                let alreadySelected = selectedEdges.current.filter( s => s.id === e.id).length > 0;
+                // if the edge isn't already selected, mark it as selected
+                if(!alreadySelected){
+                    selectedEdges.current.push(e);
+                }
+                return {...graphEdge[0],
+                    animated: graphEdge[0].animated,
+                    oldAnimated: graphEdge[0].oldAnimated ? graphEdge[0].oldAnimated : graphEdge[0].animated,
+                    oldStyle: graphEdge[0].oldStyle ? graphEdge[0].oldStyle : graphEdge[0].style,
+                    style: {
+                        stroke: graphEdge[0].style.stroke,
+                        strokeWidth: 4,
+                    },
+                    oldLabelBgStyle: graphEdge[0].oldLabelBgStyle ? graphEdge[0].oldLabelBgStyle : graphEdge[0].labelBgStyle,
+                    labelBgStyle: {
+                        fill: theme.tableHover,
+                        fillOpacity: 1.0,
+                    },
+                    oldLabelStyle: graphEdge[0].oldLabelStyle ? graphEdge[0].oldLabelStyle : graphEdge[0].labelStyle,
+                    labelStyle: {
+                        fill: theme.palette.background.contrast,
+                        //fill: "transparent"
+                    }
+                }
+            } else {
+                // this edge isn't supposed to be included, so make sure it's not highlighted
+                selectedEdges.current = selectedEdges.current.filter(s => s.id !== e.id);
+                return {...graphEdge[0],
+                    animated: false,
+                    oldAnimated: graphEdge[0].oldAnimated  ? graphEdge[0].oldAnimated : graphEdge[0].animated,
+                    oldStyle: graphEdge[0].oldStyle ? graphEdge[0].oldStyle : graphEdge[0].style,
+                    style: {
+                        stroke: theme.palette.secondary.main,
+                        strokeWidth: 0.25,
+                    },
+                    oldLabelBgStyle: graphEdge[0].oldLabelBgStyle ? graphEdge[0].oldLabelBgStyle : graphEdge[0].labelBgStyle,
+                    labelBgStyle: {
+                        fill: theme.tableHover,
+                        fillOpacity: 0.0,
+                    },
+                    oldLabelStyle: graphEdge[0].oldLabelStyle ? graphEdge[0].oldLabelStyle : graphEdge[0].labelStyle,
+                    labelStyle: {
+                        fill: "transparent"
+                    }
+                }
+            }
+        });
+        const updatedNodes = nodes.map( n => {
+            let isSelected = selectedNodes.current.filter( s => s.id === n.id).length > 0;
+            if(isSelected){
+                return {...n, data: {...n.data, selected: true}};
+            } else {
+                return {...n, data: {...n.data, selected: false}};
+            }
+        });
+        //setGraphData({...graphData, edges: updatedEdges});
+        setEdgeFlow(updatedEdges);
+        setNodes(updatedNodes);
+    }, [edgeFlow, selectedNodes.current, selectedEdges.current, nodes, graphData]);
+    const onEdgeSelected = useCallback( (event, edge) => {
+        if(event.shiftKey){
+            let alreadySelected = selectedEdges.current.filter( s => s.id === edge.id).length > 0;
+            if(alreadySelected){
+                selectedEdges.current = selectedEdges.current.filter(s => s.id !== edge.id);
+            } else {
+                selectedEdges.current.push(edge);
+            }
+        } else {
+            selectedEdges.current = [edge];
+        }
+        const updatedEdges = edgeFlow.map( e => {
+            let included = selectedEdges.current.filter( ce => ce.id === e.id).length > 0;
+            const graphEdge = graphData.edges.filter((edge) => edge.id === e.id)
+            if(included){
+                return {...graphEdge[0],
+                    animated: graphEdge[0].animated,
+                    oldAnimated: graphEdge[0].oldAnimated ? graphEdge[0].oldAnimated : graphEdge[0].animated,
+                    oldStyle: graphEdge[0].oldStyle ? graphEdge[0].oldStyle : graphEdge[0].style,
+                    style: {
+                        stroke: graphEdge[0].style.stroke,
+                        strokeWidth: 4,
+                    },
+                    oldLabelBgStyle: graphEdge[0].oldLabelBgStyle ? graphEdge[0].oldLabelBgStyle : graphEdge[0].labelBgStyle,
+                    labelBgStyle: {
+                        fill: theme.tableHover,
+                        fillOpacity: 1.0,
+                        filter: `drop-shadow (#${theme.palette.info.main} 0px 0px 10px)`
+                    },
+                    oldLabelStyle: graphEdge[0].oldLabelStyle ? graphEdge[0].oldLabelStyle : graphEdge[0].labelStyle,
+                    labelStyle: {
+                        fill: theme.palette.background.contrast,
+                        //fill: "transparent"
+                    }
+                }
+            } else {
+                return {...graphEdge[0],
+                    animated: false,
+                    oldAnimated: graphEdge[0].oldAnimated  ? graphEdge[0].oldAnimated : graphEdge[0].animated,
+                    oldStyle: graphEdge[0].oldStyle ? graphEdge[0].oldStyle : graphEdge[0].style,
+                    style: {
+                        stroke: theme.palette.secondary.main,
+                        strokeWidth: 0.25,
+                    },
+                    oldLabelBgStyle: graphEdge[0].oldLabelBgStyle ? graphEdge[0].oldLabelBgStyle : graphEdge[0].labelBgStyle,
+                    labelBgStyle: {
+                        fill: theme.tableHover,
+                        fillOpacity: 0.0,
+                    },
+                    oldLabelStyle: graphEdge[0].oldLabelStyle ? graphEdge[0].oldLabelStyle : graphEdge[0].labelStyle,
+                    labelStyle: {
+                        //fill: theme.palette.background.contrast,
+                        fill: "transparent"
+                    }
+                }
+            }
+        })
+        //setGraphData({...graphData, edges: updatedEdges});
+        setEdgeFlow(updatedEdges);
+    }, [edgeFlow, selectedEdges.current, graphData.edges]);
+    React.useEffect( () => {
+        let tempNodes = [];
+        let tempEdges = [];
+        let parentNodes = [];
+
+        const add_node = (node, localViewConfig) => {
+
+            let groupByValue = getGroupBrowserscriptBy(node, localViewConfig);
+            let nodeID = `${node.id}`;
+            let found = false;
+            for(let i = 0; i < tempNodes.length; i++){
+                if(tempNodes[i].id === nodeID){
+                    found = true;
+                    break;
+                }
+            }
+            if(!found){
+                //console.log("adding node", node)
+                tempNodes.push(
+                    {
+                        id: `${node.id}`,
+                        position: { x: 0, y: 0 },
+                        type: "browserscriptNode",
+                        height: 50,
+                        width: 50,
+                        parentNode: shouldUseTaskGroups(localViewConfig) && groupByValue !== "" ? groupByValue : null,
+                        group: shouldUseTaskGroups(localViewConfig) && groupByValue !== "" ? groupByValue : null,
+                        extent: shouldUseTaskGroups(localViewConfig) && groupByValue !== "" ? "parent" : null,
+                        data: {
+                            ...node,
+                            parentNode: shouldUseTaskGroups(localViewConfig) && groupByValue !== "" ? groupByValue : null,
+                            label: "",
+                        }
+                    }
+                )
+            }
+            found = false;
+            for(let i = 0; i < parentNodes.length; i++){
+                if(parentNodes[i].id === groupByValue){
+                    found = true;
+                    break;
+                }
+            }
+            if(!found && groupByValue !== ""){
+                //console.log("adding parent", node)
+                parentNodes.push({
+                    id: groupByValue,
+                    position: { x: 110, y: 110 },
+                    type: "groupNode",
+                    width: 200,
+                    height: 200,
+                    data: {
+                        label: groupByValue,
+                    },
+
+                });
+            }
+        }
+        const add_edge_p2p = (edge, localViewConfig) => {
+            add_node(edge.source, localViewConfig);
+            add_node(edge.destination, localViewConfig);
+            //if(edge.source.id === edge.destination.id){
+            //    return
+            //}
+            createEdge(edge, localViewConfig);
+        }
+        const createEdge = (edge, localViewConfig) =>{
+            let edgeID = `e${edge.source.id}-${edge.destination.id}-${edge.label}`;
+            //console.log("adding edge", edge);
+            let groupByValueSource = getGroupTaskBy(edge.source, localViewConfig);
+            let groupByValueDestination = getGroupTaskBy(edge.destination, localViewConfig);
+            let dupEdges = tempEdges.filter( e => e.id === edgeID)
+            if(dupEdges.length > 0){return}
+            tempEdges.push(
+                {
+                    id: edgeID,
+                    source: `${edge.source.id}`,
+                    target: `${edge.destination.id}`,
+                    animated: edge?.animate || true,
+                    color: `${edge?.color}`,
+                    label: `${edge.label}`,
+                    data: {
+                        ...edge,
+                        label: `${edge.label}`,
+                        source: {...edge.source, parentNode: shouldUseTaskGroups(localViewConfig) && groupByValueSource !== "" ? groupByValueSource : null},
+                        target: {...edge.destination, parentNode: shouldUseTaskGroups(localViewConfig) && groupByValueDestination !== "" ? groupByValueDestination : null},
+                    }
+                },
+            )
+        }
+        const hasFakeEdge = (sourceID) => {
+            for(let i = 0; i < tempEdges.length; i++){
+                if(tempEdges[i].data.source.parentNode === sourceID &&
+                    tempEdges[i].data.label === ""
+                ){
+                    return true;
+                }
+            }
+            return false;
+        }
+        if(providedNodes){
+            for(let i = 0; i < providedNodes.length; i++){
+                add_node(providedNodes[i], view_config);
+            }
+        }
+        edges.forEach( (edge) => {
+            add_edge_p2p(edge, localViewConfig);
+        });
+        for(let i = 0; i < tempEdges.length; i++){
+            let edgeColor = theme.palette.info.main;
+            switch(tempEdges[i].color){
+                case "primary":
+                    edgeColor = theme.palette.primary.main;
+                    break;
+                case "secondary":
+                    edgeColor = theme.palette.secondary.main;
+                    break;
+                case "error":
+                    edgeColor = theme.palette.error.main;
+                    break;
+                case "warning":
+                    edgeColor = theme.palette.warning.main;
+                    break;
+                case "success":
+                    edgeColor = theme.palette.success.main;
+                    break;
+                case undefined:
+                    break;
+                default:
+                    if(tempEdges[i].color.startsWith("#")){
+                        edgeColor = tempEdges[i].color;
+                    }
+            }
+            tempEdges[i].markerEnd = {
+                color: edgeColor,
+            }
+            tempEdges[i].style = {
+                stroke: edgeColor,
+                strokeWidth: 2,
+            }
+
+            tempEdges[i].markerEnd.type = "arrowclosed"
+            tempEdges[i].labelBgStyle = {
+                fill: theme.tableHover,
+                fillOpacity: 0.6,
+            }
+            tempEdges[i].labelStyle = {
+                fill: theme.palette.background.contrast,
+                //fill: "transparent"
+            }
+            //tempEdges[i].labelShowBg = true
+            //tempEdges[i].zIndex = 20;
+        }
+        if(shouldUseTaskGroups(localViewConfig)){
+            // only add in edges from parents to parents/mythic if we're doing egress flow
+            for(let i = 0; i < parentNodes.length; i++){
+                // every parentNode needs a connection to _something_ - either to Mythic or another parentNode
+                for(let j = 0; j < tempEdges.length; j++){
+                    //console.log("checking", parentNodes[i].id, tempEdges[j].data.target.parentNode, tempEdges[j].data.source.id)
+                    if(tempEdges[j].data.target.parentNode === parentNodes[i].id){
+                        // don't process where source.parentNode == target.parentNode
+                        //console.log("found match")
+                        if(parentNodes[i].id === tempEdges[j].data.source.parentNode){
+                            //console.log("skipping")
+                            continue
+                        }
+                        if(!hasFakeEdge(`${parentNodes[i].id}`)){
+                            //console.log("adding new fake edge")
+                            tempEdges.push(
+                                {
+                                    id: `e${parentNodes[i].id}-${tempEdges[j].data.source.id}`,
+                                    target: `${parentNodes[i].id}`,
+                                    source: `${tempEdges[j].data.source.id}`,
+                                    label: "",
+                                    hidden: true,
+                                    data: {
+                                        source: {...parentNodes[i], parentNode: `${parentNodes[i].id}`},
+                                        target: tempEdges[j].data.target,
+                                        label: "",
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+
+                tempNodes.push({
+                    id: `${parentNodes[i].id}-widthAdjuster`,
+                    position: { x: 0, y: 0 },
+                    type: "browserscriptNode",
+                    height: 100,
+                    width: 50,
+                    parentNode: `${parentNodes[i].id}`,
+                    group: `${parentNodes[i].id}`,
+                    hidden: true,
+                    data: {label: `${parentNodes[i].id}`}
+                })
+            }
+        }
+
+        //console.log("parent groups", shouldUseTaskGroups(view_config), [...parentNodes, ...tempNodes], tempEdges);
+        setGraphData({
+            groups: shouldUseTaskGroups(localViewConfig) ? parentNodes : [],
+            nodes: tempNodes,
+            edges: tempEdges,
+            view_config: {...localViewConfig},
+        });
+    }, [edges, localViewConfig, theme]);
+    React.useEffect( () => {
+        (async () => {
+            if(graphData.nodes.length > 0){
+                const {newNodes, newEdges} = await createLayout({
+                    initialGroups: graphData.groups,
+                    initialNodes: graphData.nodes,
+                    initialEdges: graphData.edges,
+                    alignment: graphData.view_config.rankDir
+                });
+                setNodes(newNodes);
+                setEdgeFlow(newEdges);
+                for(let i = 0; i < newNodes.length; i++){
+                    updateNodeInternals(newNodes[i].id);
+                }
+                //console.log("new graph data", newNodes, newEdges)
+                window.requestAnimationFrame(() => {
+                    for(let i = 0; i < newNodes.length; i++){
+                        updateNodeInternals(newNodes[i].id);
+                    }
+                    fitView();
+                });
+            }
+        })();
+    }, [graphData]);
+    const toggleViewConfig = () => {
+        if(localViewConfig.rankDir === "LR"){
+            setLocalViewConfig({...localViewConfig, rankDir: "BT", group_by: ""});
+        } else {
+            setLocalViewConfig({...localViewConfig, rankDir: "LR", group_by: ""});
+        }
+    }
+    const onDownloadImageClickSvg = () => {
+        // we calculate a transform for the nodes so that all nodes are visible
+        // we then overwrite the transform of the `.react-flow__viewport` element
+        // with the style option of the html-to-image library
+        snackActions.info("Saving image to svg...");
+        toSvg(viewportRef.current, {
+            width: viewportRef.current.offsetWidth,
+            height: viewportRef.current.offsetHeight,
+            style: {
+                width: viewportRef.current.clientWidth,
+                height: viewportRef.current.clientHeight,
+            },
+        }).then((dataUrl) => {
+            const a = document.createElement('a');
+            a.setAttribute('download', 'task_output.svg');
+            a.setAttribute('href', dataUrl);
+            a.click();
+        });
+    };
+    const revertHidden = () => {
+        if(localViewConfig?.revert){
+            setLocalViewConfig({...localViewConfig, revert: true});
+        } else {
+            setLocalViewConfig({...localViewConfig, revert: false});
+        }
+
+    }
+    return (
+        <div style={{height: "100%", width: "100%", overflow: "hidden"}} ref={viewportRef}>
+            <ReactFlow
+                fitView
+                onlyRenderVisibleElements={false}
+                panOnScrollSpeed={50}
+                maxZoom={100}
+                minZoom={0}
+                nodes={nodes}
+                edges={edgeFlow}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                nodeTypes={nodeTypes}
+                onPaneClick={onPaneClick}
+                onPaneContextMenu={onPaneContextMenu}
+                onNodeContextMenu={onNodeContextMenu}
+                onNodeClick={onNodeSelected}
+                onEdgeContextMenu={onEdgeContextMenu}
+                onEdgeClick={onEdgeSelected}
+            >
+                <Panel position={"top-left"} >{panel}</Panel>
+                <Controls showInteractive={false} style={{marginLeft: "40px"}} >
+                    <ControlButton onClick={toggleViewConfig} title={"Toggle View"}>
+                        <SwapCallsIcon />
+                    </ControlButton>
+                    <ControlButton onClick={onDownloadImageClickSvg} title={"Download SVG"}>
+                        <InsertPhotoIcon />
+                    </ControlButton>
+                    <ControlButton onClick={revertHidden} title={"Revert Hidden"}>
+                        <RestartAltIcon />
+                    </ControlButton>
+                </Controls>
+                <MiniMap pannable={true} zoomable={true} />
+            </ReactFlow>
+            {openContextMenu &&
+                <div style={{...contextMenuCoord, position: "fixed"}} className="context-menu">
+                    {localContextMenu.map( (m) => (
+                        <Button key={m?.key ? m.key : m.title} color={"info"} className="context-menu-button" onClick={() => {
+                            m.onClick(contextMenuNode.current);
+                            setOpenContextMenu(false);
+                        }}>{m.title}</Button>
+                    ))}
+                </div>
+            }
+            {openTaskingButton &&
+                <TaskFromUIButton ui_feature={taskingData.ui_feature}
+                                  callback_id={task.callback_id}
+                                  parameters={taskingData.parameters}
+                                  openDialog={taskingData?.openDialog || false}
+                                  getConfirmation={taskingData?.getConfirmation || false}
+                                  acceptText={taskingData?.acceptText || "confirm"}
+                                  selectCallback={taskingData?.selectCallback || false}
+                                  onTasked={finishedTasking}/>
+            }
+            {openDictionaryButton &&
+                <MythicDialog fullWidth={true} maxWidth="lg" open={openDictionaryButton}
+                              onClose={finishedTasking}
+                              innerDialog={<MythicViewJSONAsTableDialog title={taskingData.title} leftColumn={taskingData.leftColumnTitle}
+                                                                        rightColumn={taskingData.rightColumnTitle} value={taskingData.value} onClose={finishedTasking} />}
+                />
+            }
+            {openStringButton &&
+                <MythicDisplayTextDialog fullWidth={true} maxWidth="lg" open={openStringButton} title={taskingData?.title || "Title Here"} value={taskingData?.value || ""}
+                                         onClose={finishedTasking}
+                />
+            }
+            {openTableButton &&
+                <MythicDialog fullWidth={true} maxWidth="xl" open={openTableButton}
+                              onClose={finishedTasking}
+                              innerDialog={<ResponseDisplayTableDialogTable title={taskingData?.title || "Title Here"}
+                                                                            table={taskingData?.value || {}} callback_id={task.callback_id} onClose={finishedTasking} />}
+                />
+            }
+        </div>
+
+    )
+}

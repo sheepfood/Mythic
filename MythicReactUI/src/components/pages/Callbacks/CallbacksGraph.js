@@ -3,14 +3,9 @@ import {DrawC2PathElementsFlowWithProvider} from './C2PathDialog';
 import {Button} from '@mui/material';
 import ButtonGroup from '@mui/material/ButtonGroup';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
-import Paper from '@mui/material/Paper';
-import Grow from '@mui/material/Grow';
-import Popper from '@mui/material/Popper';
 import MenuItem from '@mui/material/MenuItem';
-import MenuList from '@mui/material/MenuList';
 import ClickAwayListener from '@mui/material/ClickAwayListener';
 import {useMutation } from '@apollo/client';
-import {saveSvgAsPng} from 'save-svg-as-png';
 import {hideCallbackMutation, removeEdgeMutation, addEdgeMutation} from './CallbackMutations';
 import { MythicDialog } from '../../MythicComponents/MythicDialog';
 import {MythicSelectFromListDialog} from '../../MythicComponents/MythicSelectFromListDialog';
@@ -24,7 +19,8 @@ import OutlinedInput from '@mui/material/OutlinedInput';
 import InputLabel from '@mui/material/InputLabel';
 import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
-import {CallbackGraphEdgesContext, OnOpenTabContext} from './CallbacksTop';
+import {CallbackGraphEdgesContext, CallbacksContext, OnOpenTabContext} from './CallbacksTop';
+import {Dropdown, DropdownMenuItem} from "../../MythicComponents/MythicNestedMenus";
 
 const ITEM_HEIGHT = 48;
 const ITEM_PADDING_TOP = 1;
@@ -91,8 +87,8 @@ const GraphViewOptions = ({viewConfig, setViewConfig}) => {
         evt.stopPropagation();
         setDropdownOpen((prevOpen) => !prevOpen);
     };
-    const handleMenuItemClick = (event, index) => {
-        options[index].click();
+    const handleMenuItemClick = (event, click) => {
+        click();
         setDropdownOpen(false);
     };
     const options = [
@@ -183,38 +179,31 @@ const GraphViewOptions = ({viewConfig, setViewConfig}) => {
                 </FormControl>
             }
 
-        <Popper open={dropdownOpen} anchorEl={dropdownAnchorRef.current} transition role={undefined} style={{zIndex: 200}}>
-            {({ TransitionProps, placement }) => (
-                <Grow
-                    {...TransitionProps}
-                    style={{
-                        transformOrigin: placement === 'bottom' ? 'center top' : 'center bottom',
-                    }}
-                >
-                    <Paper style={{backgroundColor: theme.palette.mode === 'dark' ? theme.palette.primary.dark : theme.palette.primary.light, color: "white"}}>
-                        <ClickAwayListener onClickAway={handleClose}>
-                            <MenuList id="split-button-menu">
-                                {options.map((option, index) => (
-                                    <MenuItem
-                                        key={option.name}
-                                        onClick={(event) => handleMenuItemClick(event, index)}
-                                    >
-                                        {option.name}
-                                    </MenuItem>
-                                ))}
-                            </MenuList>
-                        </ClickAwayListener>
-                    </Paper>
-                </Grow>
-            )}
-        </Popper>
+            <ClickAwayListener onClickAway={handleClose}>
+                <Dropdown
+                    isOpen={dropdownAnchorRef.current}
+                    onOpen={setDropdownOpen}
+                    externallyOpen={dropdownOpen}
+                    menu={
+                        options.map((option, index) => (
+                                <DropdownMenuItem
+                                    key={option.name}
+                                    disabled={option.disabled}
+                                    onClick={(event) => handleMenuItemClick(event, option.click)}
+                                >
+                                    {option.name}
+                                </DropdownMenuItem>
+                            ))
+                    }
+                />
+            </ClickAwayListener>
         </div>
     )
 }
-export function CallbacksGraph({}){
+export function CallbacksGraph({onOpenTab}){
     const theme = useTheme();
+    const callbacks = useContext(CallbacksContext);
     const callbackgraphedges = useContext(CallbackGraphEdgesContext);
-    const onOpenTab = useContext(OnOpenTabContext);
     //used for creating a task to do a link command
     const [linkCommands, setLinkCommands] = React.useState([]);
     const [openParametersDialog, setOpenParametersDialog] = React.useState(false);
@@ -330,7 +319,6 @@ export function CallbacksGraph({}){
 	        {
 		        title: 'Interact',
                 onClick: function(node){
-                    console.log(node);
 		            onOpenTab({tabType: "interact", tabID: node.callback_id + "interact", callbackID: node.callback_id});
 	            }
             },
@@ -407,9 +395,8 @@ export function CallbacksGraph({}){
                                         action={"select"} display={"display"} identifier={"display"}/>}
                 />
             }
-            <DrawC2PathElementsFlowWithProvider edges={callbackgraphedges} view_config={viewConfig} theme={theme}
-                panel={<GraphViewOptions setViewConfig={setViewConfig} viewConfig={viewConfig} />}
-                                                contextMenu={contextMenu}/>
+            <DrawC2PathElementsFlowWithProvider providedNodes={callbacks} edges={callbackgraphedges} view_config={viewConfig} theme={theme}
+                panel={<GraphViewOptions setViewConfig={setViewConfig} viewConfig={viewConfig} />} contextMenu={contextMenu}/>
         </div>
     );
 }

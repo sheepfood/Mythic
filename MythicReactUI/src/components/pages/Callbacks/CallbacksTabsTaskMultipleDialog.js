@@ -9,6 +9,7 @@ import {CallbacksTabsTaskingInput} from "./CallbacksTabsTaskingInput";
 import {CallbacksTableIPCell, CallbacksTableLastCheckinCell} from "./CallbacksTableRow";
 import { DataGrid } from '@mui/x-data-grid';
 import { validate as uuidValidate } from 'uuid';
+import {snackActions} from "../../utilities/Snackbar";
 
 
 const callbacksAndFeaturesQuery = gql`
@@ -24,7 +25,13 @@ query callbacksAndFeatures($payloadtype_id: Int!) {
     display_id
     last_checkin
     ip
+    dead
     mythictree_groups_string
+    payload {
+        payloadtype {
+            agent_type
+        }
+    }
   }
 }`;
 
@@ -54,7 +61,7 @@ const columns = [
     {
         field: 'ip',
         headerName: 'IP',
-        flex: 1,
+        width: 100,
         renderCell: (params) => <CallbacksTableIPCell rowData={params.row} cellData={params.row.ip} />,
         sortable: false,
         valueGetter: (params) => {
@@ -119,7 +126,7 @@ const CustomSelectTable = ({initialData, selectedData}) => {
 
     )
 }
-export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
+export function CallbacksTabsTaskMultipleDialog({onClose, callback}) {
     const mountedRef = React.useRef(true);
     const [selectedToken, setSelectedToken] = React.useState({});
     const [openTaskingButton, setOpenTaskingButton] = React.useState(false);
@@ -139,8 +146,8 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
     const submitTasking = () => {
       //console.log("selectedFeature", selectedFeature)
       if(selectedData.current.length === 0){
-        onClose();
-        console.log("selectedData.current.length === 0")
+        //onClose();
+          snackActions.warning("No callbacks selected");
         return;
       }
         const callbacks = selectedData.current.map( c => c.display_id)
@@ -158,10 +165,16 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
         }
     }
     const onTasked = ({tasked, variables}) => {
-        onClose();
+        //onClose();
+        setOpenTaskingButton(false);
     }
     const onSubmitCommandLine = (message, cmd, parsed, force_parsed_popup, cmdGroupNames, previousTaskingLocation) => {
         //console.log(message, cmd, parsed);
+        if(selectedData.current.length === 0){
+            //onClose();
+            snackActions.warning("No callbacks selected");
+            return;
+        }
         let params = message.split(" ");
         delete params[0];
         params = params.join(" ").trim();
@@ -180,7 +193,8 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
                 openDialog: false,
                 parameters: params,
                 tasking_location: newTaskingLocation,
-                dontShowSuccessDialog: false
+                dontShowSuccessDialog: false,
+                payload_type: cmd.payloadtype?.name,
             };
             submitTasking();
             return;
@@ -225,7 +239,8 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
                         groupName: cmdGroupNames[0],
                         parameters: params,
                         tasking_location: newTaskingLocation,
-                        dontShowSuccessDialog: false
+                        dontShowSuccessDialog: false,
+                        payload_type: cmd.payloadtype?.name,
                     };
                 }else{
                     finalTaskedParameters.current = undefined;
@@ -236,7 +251,8 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
                         parsedParameters: parsed,
                         parameters: params,
                         tasking_location: newTaskingLocation,
-                        dontShowSuccessDialog: false
+                        dontShowSuccessDialog: false,
+                        payload_type: cmd.payloadtype?.name,
                     };
                 }
                 submitTasking();
@@ -253,7 +269,8 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
                     parsedParameters: parsed,
                     tasking_location: newTaskingLocation,
                     dontShowSuccessDialog: false,
-                    parameter_group_name: cmdGroupNames[0]
+                    parameter_group_name: cmdGroupNames[0],
+                    payload_type: cmd.payloadtype?.name,
                 };
                 submitTasking();
             }
@@ -271,7 +288,6 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
   return (
     <React.Fragment>
         <DialogTitle id="form-dialog-title">Task Multiple {callback.payload.payloadtype.name} Callbacks at Once</DialogTitle>
-
             <CustomSelectTable initialData={initialData}
                                selectedData={selectedData}  />
         <Grid item xs={12} >
@@ -287,6 +303,7 @@ export function CallbacksTabsTaskMultipleDialog({onClose, callback, me}) {
                 openDialog={taskingData.current?.openDialog || false}
                 tasking_location={taskingData.current?.tasking_location || "command_line"}
                 dontShowSuccessDialog={taskingData.current?.dontShowSuccessDialog || false}
+                selectCallback={taskingData.current?.selectCallback || false}
                 onTasked={onTasked}/>
         }
         <DialogActions>

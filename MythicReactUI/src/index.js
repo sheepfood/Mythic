@@ -5,7 +5,7 @@ import {BrowserRouter as Router} from 'react-router-dom'
 import { ApolloProvider, ApolloClient, InMemoryCache, from, split, HttpLink } from '@apollo/client';
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { createClient } from 'graphql-ws';
-import { successfulRefresh, FailedRefresh} from './cache';
+import {successfulRefresh, FailedRefresh, successfulLogin} from './cache';
 import { onError } from "@apollo/client/link/error";
 import { RetryLink } from "@apollo/client/link/retry";
 import { getMainDefinition } from '@apollo/client/utilities'
@@ -14,8 +14,7 @@ import {snackActions} from './components/utilities/Snackbar';
 import jwt_decode from 'jwt-decode';
 import {meState} from './cache';
 
-export const mythicVersion = "3.2.11";
-export const mythicUIVersion = "0.1.51";
+export const mythicUIVersion = "0.2.45";
 
 let fetchingNewToken = false;
 
@@ -51,13 +50,40 @@ let httpLink = new HttpLink({
         reconnect: true,   
         connectionParams: {
           headers: {
-            Authorization: () => `Bearer ${localStorage.getItem('access_token')}`
+              Authorization: () => `Bearer ${localStorage.getItem('access_token')}`,
+              MythicSource: "web"
           }
        }     
     }
 });
 export const isJWTValid = () => {
   let access_token = localStorage.getItem("access_token");
+  if(!access_token){
+      let cookie = document.cookie;
+      if(cookie && cookie !== ""){
+          let cookiePieces = cookie.split("=")
+          if(cookiePieces.length !== 2){
+              console.log("bad number of cookie pieces", "cookie", cookie)
+          } else if(cookiePieces[0] !== "user") {
+              console.log("unknown cookie", "name", cookiePieces[0]);
+          } else {
+              try{
+                  let cookieString = decodeURIComponent(cookiePieces[1]);
+                  let cookieJSON = JSON.parse(atob(cookieString));
+                  if("access_token" in cookieJSON){
+                      successfulLogin(cookieJSON);
+                      restartWebsockets();
+                      access_token = localStorage.getItem("access_token");
+                  }else{
+                      snackActions.warning("Invalid Authentication");
+                      console.log("Error", cookieJSON);
+                  }
+              }catch(error){
+                  console.log("error processing cookie value", error)
+              }
+          }
+      }
+  }
   //console.log("in isJWTValid", "access_token", access_token);
   if(access_token){
     const decoded_token = jwt_decode(access_token);
@@ -104,6 +130,7 @@ const authLink = setContext( async (_, {headers}) => {
               return{
                   headers: {
                       Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+                      MythicSource: "web"
                   }
               }
           } else {
@@ -118,6 +145,7 @@ const authLink = setContext( async (_, {headers}) => {
               return{
                   headers: {
                       Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+                      MythicSource: "web"
                   }
               }
           }
@@ -130,7 +158,8 @@ const authLink = setContext( async (_, {headers}) => {
     return {
       Authorization: `Bearer ${localStorage.getItem('access_token')}`,
       headers: {
-        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+          Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+          MythicSource: "web"
       }
     }
 });
@@ -177,6 +206,7 @@ const errorLink = onError(({ graphQLErrors, networkError }) => {
     }
     if (networkError) {
       console.log("[Network error]", networkError);
+      console.log(networkError.extensions, networkError.message);
       
       if(networkError.extensions === undefined){
         snackActions.error("Failed to connect to Mythic, please refresh");
@@ -213,8 +243,9 @@ export const GetNewToken = async () =>{
   const requestOptions = {
       method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          MythicSource: "web"
       },
       body: JSON.stringify({"refresh_token": localStorage.getItem("refresh_token"),
         "access_token": localStorage.getItem("access_token")})
@@ -268,7 +299,8 @@ const wsClient = createClient({
         return {
             Authorization: `Bearer ${localStorage.getItem('access_token')}`,
             headers: {
-                Authorization: `Bearer ${localStorage.getItem('access_token')}`
+                Authorization: `Bearer ${localStorage.getItem('access_token')}`,
+                MythicSource: "web"
             }
         }
     }});
@@ -289,6 +321,7 @@ export const apolloClient = new ApolloClient({
     cache
   });
 export function restartWebsockets () {
+    console.log("restarting websockets");
     wsClient.dispose();
 }
   // if the user refreshes the page, we lose all react tracking, so try to reload from localstorage first

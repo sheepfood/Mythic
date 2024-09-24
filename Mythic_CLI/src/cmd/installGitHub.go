@@ -1,9 +1,10 @@
 package cmd
 
 import (
-	"fmt"
+	"github.com/MythicMeta/Mythic_CLI/cmd/config"
 	"github.com/MythicMeta/Mythic_CLI/cmd/internal"
 	"github.com/spf13/cobra"
+	"log"
 	"os"
 )
 
@@ -16,8 +17,6 @@ var installGitHubCmd = &cobra.Command{
 	Run:     installGitHub,
 	Args:    cobra.RangeArgs(1, 2),
 }
-var force bool
-var branch string
 
 func init() {
 	installCmd.AddCommand(installGitHubCmd)
@@ -35,16 +34,27 @@ func init() {
 		"",
 		`Install a specific branch from GitHub instead of the main/master branch`,
 	)
+	installGitHubCmd.Flags().BoolVarP(
+		&keepVolume,
+		"keep-volume",
+		"",
+		false,
+		`Force keep the container's existing volume (if any) when starting the container`,
+	)
 }
 
 func installGitHub(cmd *cobra.Command, args []string) {
 	if len(args) == 2 {
 		branch = args[1]
 	}
-	if err := internal.InstallService(args[0], branch, force); err != nil {
-		fmt.Printf("[-] Failed to install service: %v\n", err)
+	localKeepVolume := keepVolume
+	if !keepVolume {
+		keepVolume = !config.GetMythicEnv().GetBool("REBUILD_ON_START")
+	}
+	if err := internal.InstallService(args[0], branch, force, localKeepVolume); err != nil {
+		log.Printf("[-] Failed to install service: %v\n", err)
 		os.Exit(1)
 	} else {
-		fmt.Printf("[+] Successfully installed service!\n")
+		log.Printf("[+] Successfully installed service!\n")
 	}
 }

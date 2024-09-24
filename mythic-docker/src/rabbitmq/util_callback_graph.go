@@ -2,11 +2,13 @@ package rabbitmq
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/its-a-feature/Mythic/database"
 	databaseStructs "github.com/its-a-feature/Mythic/database/structs"
 	"github.com/its-a-feature/Mythic/logging"
 	"github.com/its-a-feature/Mythic/utils"
+	"github.com/jmoiron/sqlx"
 	"sync"
 	"time"
 )
@@ -111,6 +113,80 @@ func (c *bfsCache) Add(sourceId int, destinationId int, bfsPath []cbGraphAdjMatr
 	}
 }
 
+func (g *cbGraph) getAllChildIDs(callbackId int) []int {
+	g.lock.RLock()
+	defer g.lock.RUnlock()
+	visitedIDs := map[int]bool{}
+	needToVisitIDs := []int{callbackId}
+	callbackIDsToUpdate := []int{callbackId}
+	for len(needToVisitIDs) > 0 {
+		// get the next id we're going to check
+		currentId := needToVisitIDs[0]
+		// remove this id from the list of ids still to visit
+		needToVisitIDs = needToVisitIDs[1:]
+		// get the immediate children from this id
+		immediateChildren, exists := g.adjMatrix[currentId]
+		if !exists {
+			// this callback has no children, continue
+			continue
+		}
+		for i, _ := range immediateChildren {
+			// check if we've already visited this id, if so, move on
+			if _, visited := visitedIDs[immediateChildren[i].SourceId]; !visited {
+				// mark that we've visited this id
+				visitedIDs[immediateChildren[i].SourceId] = true
+				if !isCallbackStreaming(immediateChildren[i].SourceId) {
+					// add this id as an id for the next iteration to check its children
+					needToVisitIDs = append(needToVisitIDs, immediateChildren[i].SourceId)
+					callbackIDsToUpdate = append(callbackIDsToUpdate, immediateChildren[i].SourceId)
+				}
+
+			}
+			if _, visited := visitedIDs[immediateChildren[i].DestinationId]; !visited {
+				// mark that we've visited this id
+				visitedIDs[immediateChildren[i].DestinationId] = true
+				if !isCallbackStreaming(immediateChildren[i].DestinationId) {
+					// add this id as an id for the next iteration to check its children
+					needToVisitIDs = append(needToVisitIDs, immediateChildren[i].DestinationId)
+					callbackIDsToUpdate = append(callbackIDsToUpdate, immediateChildren[i].DestinationId)
+				}
+			}
+		}
+	}
+	return callbackIDsToUpdate
+}
+func updateTimes(updatedTime time.Time, callbackIDs []int) {
+	//logging.LogInfo("updateTimes", "callbacks", callbackIDs)
+	query, args, err := sqlx.Named(`UPDATE callback SET last_checkin=:last_checkin, active=:active WHERE id IN (:ids)`,
+		map[string]interface{}{"last_checkin": updatedTime, "ids": callbackIDs, "active": true})
+	if err != nil {
+		logging.LogError(err, "Failed to make named statement for updating last checkin of callback ids")
+		return
+	}
+	query, args, err = sqlx.In(query, args...)
+	if err != nil {
+		logging.LogError(err, "Failed to do sqlx.In for updating last checkin of callback ids")
+		return
+	}
+	query = database.DB.Rebind(query)
+	_, err = database.DB.Exec(query, args...)
+	if err != nil {
+		logging.LogError(err, "Failed to update callback time when push one-to-many c2 disconnected or P2P connection updated")
+		return
+	}
+}
+func listenForPushConnectDisconnectMessages() {
+	for {
+		select {
+		case connectCallbackId := <-pushC2StreamingConnectNotification:
+			callbackIDs := callbackGraph.getAllChildIDs(connectCallbackId)
+			updateTimes(time.UnixMicro(0), callbackIDs)
+		case disconnectCallbackId := <-pushC2StreamingDisconnectNotification:
+			callbackIDs := callbackGraph.getAllChildIDs(disconnectCallbackId)
+			updateTimes(time.Now().UTC(), callbackIDs)
+		}
+	}
+}
 func (g *cbGraph) Initialize() {
 	edges := []databaseStructs.Callbackgraphedge{}
 	g.adjMatrix = make(map[int][]cbGraphAdjMatrixEntry, 0)
@@ -131,15 +207,14 @@ func (g *cbGraph) Initialize() {
 	} else {
 		// make our initial adjacency matrix and tree root data
 		for _, edge := range edges {
-			g.Add(edge.Source, edge.Destination, edge.C2Profile.Name)
-			g.Add(edge.Destination, edge.Source, edge.C2Profile.Name)
+			g.Add(edge.Source, edge.Destination, edge.C2Profile.Name, true)
+			g.Add(edge.Destination, edge.Source, edge.C2Profile.Name, true)
 		}
 	}
 	BFSCache.cache = make(map[int]map[int][][]cbGraphAdjMatrixEntry)
 }
-func (g *cbGraph) Add(source databaseStructs.Callback, destination databaseStructs.Callback, c2profileName string) {
+func (g *cbGraph) Add(source databaseStructs.Callback, destination databaseStructs.Callback, c2profileName string, initializing bool) {
 	g.lock.Lock()
-	defer g.lock.Unlock()
 	if _, ok := g.adjMatrix[source.ID]; !ok {
 		// add it
 		g.adjMatrix[source.ID] = append(g.adjMatrix[source.ID], cbGraphAdjMatrixEntry{
@@ -153,7 +228,22 @@ func (g *cbGraph) Add(source databaseStructs.Callback, destination databaseStruc
 	} else {
 		for _, dest := range g.adjMatrix[source.ID] {
 			if dest.DestinationId == destination.ID && dest.C2ProfileName == c2profileName {
+				g.lock.Unlock()
 				//logging.LogDebug("Found existing p2p connection, not adding new one to memory")
+				if initializing {
+					// don't update callback times when initializing, this is when the Mythic server starts up
+					return
+				}
+				updateTime := time.Now().UTC()
+				if isCallbackStreaming(source.ID) {
+					updateTime = time.UnixMicro(0)
+				}
+
+				callbackIDs := g.getAllChildIDs(source.ID)
+				if len(callbackIDs) > 0 {
+					updateTimes(updateTime, callbackIDs)
+				}
+
 				return
 			}
 		}
@@ -165,6 +255,7 @@ func (g *cbGraph) Add(source databaseStructs.Callback, destination databaseStruc
 			C2ProfileName:      c2profileName,
 		})
 	}
+	g.lock.Unlock()
 	return
 }
 func (g *cbGraph) AddByAgentIds(source string, destination string, c2profileName string) {
@@ -196,17 +287,19 @@ func (g *cbGraph) AddByAgentIds(source string, destination string, c2profileName
 	edge.OperationID = sourceCallback.OperationID
 	edge.C2ProfileID = getC2ProfileIdForName(c2profileName)
 	// only add / talk to database if the in-memory piece gets updated
-	g.Add(sourceCallback, destinationCallback, c2profileName)
-	g.Add(destinationCallback, sourceCallback, c2profileName)
+	g.Add(sourceCallback, destinationCallback, c2profileName, false)
+	g.Add(destinationCallback, sourceCallback, c2profileName, false)
 	// can't have a unique constraint with a NULL value, NULL != NULL
-	if err := database.DB.Get(&edge.ID, `SELECT id FROM callbackgraphedge
+	err := database.DB.Get(&edge.ID, `SELECT id FROM callbackgraphedge
 		WHERE operation_id=$1 AND source_id=$2 AND destination_id=$3 AND
 		c2_profile_id=$4 AND end_timestamp IS NULL`,
-		edge.OperationID, edge.SourceID, edge.DestinationID, edge.C2ProfileID); err == sql.ErrNoRows {
+		edge.OperationID, edge.SourceID, edge.DestinationID, edge.C2ProfileID)
+	if errors.Is(err, sql.ErrNoRows) {
 		// this specific combination didn't yield any results, so add it
-		if _, err := database.DB.NamedExec(`INSERT INTO callbackgraphedge
+		_, err := database.DB.NamedExec(`INSERT INTO callbackgraphedge
 			(operation_id, source_id, destination_id, c2_profile_id)
-			VALUES (:operation_id, :source_id, :destination_id, :c2_profile_id)`, edge); err != nil {
+			VALUES (:operation_id, :source_id, :destination_id, :c2_profile_id)`, edge)
+		if err != nil {
 			logging.LogError(err, "Failed to insert new edge for P2P connection")
 		} else {
 			logging.LogInfo("added new callbackgraph edge when updating graph by agent ids")
@@ -260,6 +353,7 @@ func (g *cbGraph) Remove(sourceId int, destinationId int, c2profileName string) 
 			g.adjMatrix[sourceId][len(g.adjMatrix[sourceId])-1] = cbGraphAdjMatrixEntry{}
 			g.adjMatrix[sourceId] = g.adjMatrix[sourceId][:len(g.adjMatrix[sourceId])-1]
 			//g.adjMatrix[sourceId] = append(g.adjMatrix[sourceId][:foundIndex], g.adjMatrix[sourceId][foundIndex:]...)
+			logging.LogDebug("removing cached BFSCache", "sourceID", sourceId, "destinationID", destinationId)
 			BFSCache.Remove(sourceId, destinationId, c2profileName)
 		}
 	}
@@ -279,7 +373,7 @@ func (g *cbGraph) GetBFSPath(sourceId int, destinationId int) []cbGraphAdjMatrix
 		return nil
 	}
 	if existingBFSpath := BFSCache.GetPath(sourceId, destinationId); existingBFSpath != nil {
-		logging.LogDebug("returning a cachedBFS path", "sourceID", sourceId, "destinationID", destinationId)
+		//logging.LogDebug("returning a cachedBFS path", "sourceID", sourceId, "destinationID", destinationId)
 		return existingBFSpath
 	}
 	// start with a fake-ish entry that we won't include in the final path
@@ -331,22 +425,23 @@ func (g *cbGraph) Print() {
 
 func RemoveEdgeByIds(sourceId int, destinationId int, c2profileName string) error {
 	currentEdges := []databaseStructs.Callbackgraphedge{}
-	if err := database.DB.Select(&currentEdges, `SELECT
+	err := database.DB.Select(&currentEdges, `SELECT
 		id FROM callbackgraphedge WHERE 
 		end_timestamp IS NULL AND source_id=$1 AND destination_id=$2 AND c2_profile_id=$3`,
-		sourceId, destinationId, getC2ProfileIdForName(c2profileName)); err != nil {
+		sourceId, destinationId, getC2ProfileIdForName(c2profileName))
+	if err != nil {
 		logging.LogError(err, "Failed to get current edges for callback to update")
 		return err
 	}
 	for _, edge := range currentEdges {
-		if _, err := database.DB.Exec(`UPDATE callbackgraphedge SET end_timestamp=$1 WHERE id=$2`,
-			time.Now().UTC(), edge.ID); err != nil {
+		_, err = database.DB.Exec(`UPDATE callbackgraphedge SET end_timestamp=$1 WHERE id=$2`,
+			time.Now().UTC(), edge.ID)
+		if err != nil {
 			logging.LogError(err, "Failed to update end_timestamp for edge")
 			return err
-		} else {
-			callbackGraph.Remove(sourceId, destinationId, c2profileName)
-			callbackGraph.Remove(destinationId, sourceId, c2profileName)
 		}
+		callbackGraph.Remove(sourceId, destinationId, c2profileName)
+		callbackGraph.Remove(destinationId, sourceId, c2profileName)
 	}
 	return nil
 }
@@ -354,73 +449,80 @@ func AddEdgeById(sourceId int, destinationId int, c2profileName string) error {
 	sourceCallback := databaseStructs.Callback{}
 	destinationCallback := databaseStructs.Callback{}
 	edge := databaseStructs.Callbackgraphedge{}
-	if err := database.DB.Get(&sourceCallback, `SELECT 
+	err := database.DB.Get(&sourceCallback, `SELECT 
     	id, operation_id, agent_callback_id 
-		FROM callback WHERE id=$1`, sourceId); err != nil {
+		FROM callback WHERE id=$1`, sourceId)
+	if err != nil {
 		logging.LogError(err, "Failed to find source callback for implicit P2P link")
 		return err
-	} else if err := database.DB.Get(&destinationCallback, `SELECT 
+	}
+	err = database.DB.Get(&destinationCallback, `SELECT 
     	id, operation_id, agent_callback_id 
-		FROM callback WHERE id=$1`, destinationId); err != nil {
+		FROM callback WHERE id=$1`, destinationId)
+	if err != nil {
 		logging.LogError(err, "Failed to find destination callback for implicit P2P link")
 		return err
-	} else {
-		edge.SourceID = sourceCallback.ID
-		edge.DestinationID = destinationCallback.ID
-		edge.OperationID = sourceCallback.OperationID
-		edge.C2ProfileID = getC2ProfileIdForName(c2profileName)
-		if _, err := database.DB.NamedExec(`INSERT INTO callbackgraphedge 
+	}
+	edge.SourceID = sourceCallback.ID
+	edge.DestinationID = destinationCallback.ID
+	edge.OperationID = sourceCallback.OperationID
+	edge.C2ProfileID = getC2ProfileIdForName(c2profileName)
+	_, err = database.DB.NamedExec(`INSERT INTO callbackgraphedge 
 		(operation_id, source_id, destination_id, c2_profile_id)
 		VALUES (:operation_id, :source_id, :destination_id, :c2_profile_id)
-		ON CONFLICT DO NOTHING`, edge); err != nil {
-			logging.LogError(err, "Failed to insert new edge for P2P connection")
-			return err
-		} else {
-			logging.LogInfo("added new callbackgraph edge in addEdgeById", "c2", c2profileName, "callback", sourceId)
-			callbackGraph.Add(sourceCallback, destinationCallback, c2profileName)
-		}
+		ON CONFLICT DO NOTHING`, edge)
+	if err != nil {
+		logging.LogError(err, "Failed to insert new edge for P2P connection")
+		return err
 	}
+	logging.LogInfo("added new callbackgraph edge in addEdgeById", "c2", c2profileName, "callback", sourceId)
+	callbackGraph.Add(sourceCallback, destinationCallback, c2profileName, false)
 	return nil
 }
 func getC2ProfileIdForName(c2profileName string) int {
-	if id, ok := c2profileNameToIdMap[c2profileName]; ok {
+	id, ok := c2profileNameToIdMap[c2profileName]
+	if ok {
 		return id
-	} else {
-		c2profile := databaseStructs.C2profile{}
-		if err := database.DB.Get(&c2profile, `SELECT id FROM c2profile WHERE "name"=$1 AND deleted=false`, c2profileName); err != nil {
-			logging.LogError(err, "Failed to find c2 profile", "c2profile", c2profileName)
-			return 0
-		} else {
-			c2profileNameToIdMap[c2profileName] = c2profile.ID
-			return c2profile.ID
-		}
 	}
+	c2profile := databaseStructs.C2profile{}
+	err := database.DB.Get(&c2profile, `SELECT id FROM c2profile WHERE "name"=$1 AND deleted=false`,
+		c2profileName)
+	if err != nil {
+		logging.LogError(err, "Failed to find c2 profile", "c2profile", c2profileName)
+		return 0
+	}
+	c2profileNameToIdMap[c2profileName] = c2profile.ID
+	return c2profile.ID
 }
 func AddEdgeByDisplayIds(sourceId int, destinationId int, c2profileName string, operatorOperation *databaseStructs.Operatoroperation) error {
 	source := databaseStructs.Callback{}
 	destination := databaseStructs.Callback{}
-	if err := database.DB.Get(&source, `SELECT id FROM callback WHERE display_id=$1 AND operation_id=$2`, sourceId, operatorOperation.CurrentOperation.ID); err != nil {
+	err := database.DB.Get(&source, `SELECT id FROM callback WHERE display_id=$1 AND operation_id=$2`,
+		sourceId, operatorOperation.CurrentOperation.ID)
+	if err != nil {
 		logging.LogError(err, "Failed to find source callback when trying to add edge")
 		return err
-	} else if err := database.DB.Get(&destination, `SELECT id FROM callback WHERE display_id=$1 AND operation_id=$2`, destinationId, operatorOperation.CurrentOperation.ID); err != nil {
+	}
+	err = database.DB.Get(&destination, `SELECT id FROM callback WHERE display_id=$1 AND operation_id=$2`,
+		destinationId, operatorOperation.CurrentOperation.ID)
+	if err != nil {
 		logging.LogError(err, "Failed to find destination callback when trying to add edge")
 		return err
-	} else {
-		return AddEdgeById(source.ID, destination.ID, c2profileName)
 	}
+	return AddEdgeById(source.ID, destination.ID, c2profileName)
 }
 func RemoveEdgeById(edgeId int, operatorOperation *databaseStructs.Operatoroperation) error {
 	callbackEdge := databaseStructs.Callbackgraphedge{}
-	if err := database.DB.Get(&callbackEdge, `SELECT 
+	err := database.DB.Get(&callbackEdge, `SELECT 
     	callbackgraphedge.source_id, 
     	callbackgraphedge.destination_id, 
        c2p.name "c2profile.name"
        FROM callbackgraphedge
        JOIN c2profile c2p on callbackgraphedge.c2_profile_id = c2p.id
-       WHERE callbackgraphedge.id=$1 AND callbackgraphedge.operation_id=$2`, edgeId, operatorOperation.CurrentOperation.ID); err != nil {
+       WHERE callbackgraphedge.id=$1 AND callbackgraphedge.operation_id=$2`, edgeId, operatorOperation.CurrentOperation.ID)
+	if err != nil {
 		logging.LogError(err, "Failed to find edge information")
 		return err
-	} else {
-		return RemoveEdgeByIds(callbackEdge.SourceID, callbackEdge.DestinationID, callbackEdge.C2Profile.Name)
 	}
+	return RemoveEdgeByIds(callbackEdge.SourceID, callbackEdge.DestinationID, callbackEdge.C2Profile.Name)
 }

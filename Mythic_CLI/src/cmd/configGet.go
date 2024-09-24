@@ -2,9 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/MythicMeta/Mythic_CLI/cmd/internal"
+	"github.com/MythicMeta/Mythic_CLI/cmd/config"
 	"github.com/spf13/cobra"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 )
@@ -35,9 +36,14 @@ func configGet(cmd *cobra.Command, args []string) {
 	fmt.Fprintf(writer, "\n %s\t%s", "Setting", "Value")
 	fmt.Fprintf(writer, "\n %s\t%s", "–––––––", "–––––––")
 
-	configuration := internal.GetConfigStrings(args)
-	for key, val := range configuration {
-		fmt.Fprintf(writer, "\n %s\t%s", strings.ToUpper(key), val)
+	configuration := config.GetConfigStrings(args)
+	keys := make([]string, 0, len(configuration))
+	for k := range configuration {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(writer, "\n %s\t%s", strings.ToUpper(key), configuration[key])
 	}
 	fmt.Fprintln(writer, "")
 }

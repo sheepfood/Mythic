@@ -7,10 +7,12 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/its-a-feature/Mythic/database/enums/InteractiveTask"
+	"github.com/its-a-feature/Mythic/eventing"
 	"github.com/mitchellh/mapstructure"
 	"io"
 	"math"
@@ -28,171 +30,173 @@ import (
 )
 
 type agentMessagePostResponseMessage struct {
-	Responses []agentMessagePostResponse `json:"responses" mapstructure:"responses"`
+	Responses []agentMessagePostResponse `json:"responses" mapstructure:"responses" xml:"responses"`
 	Other     map[string]interface{}     `json:"-" mapstructure:",remain"` // capture any 'other' keys that were passed in so we can reply back with them
 }
 
 type agentMessagePostResponse struct {
-	TaskID          string                                    `json:"task_id" mapstructure:"task_id"`
-	SequenceNumber  *int64                                    `json:"sequence_num,omitempty" mapstructure:"sequence_num,omitempty"`
-	Completed       *bool                                     `json:"completed,omitempty" mapstructure:"completed,omitempty"`
-	UserOutput      *string                                   `json:"user_output,omitempty" mapstructure:"user_output,omitempty"`
-	Status          *string                                   `json:"status,omitempty" mapstructure:"status,omitempty"`
-	FileBrowser     *agentMessagePostResponseFileBrowser      `json:"file_browser,omitempty" mapstructure:"file_browser,omitempty"`
-	RemovedFiles    *[]agentMessagePostResponseRemovedFiles   `json:"removed_files,omitempty" mapstructure:"removed_files,omitempty"`
-	Credentials     *[]agentMessagePostResponseCredentials    `json:"credentials,omitempty" mapstructure:"credentials,omitempty"`
-	Artifacts       *[]agentMessagePostResponseArtifacts      `json:"artifacts,omitempty" mapstructure:"artifacts,omitempty"`
-	Processes       *[]agentMessagePostResponseProcesses      `json:"processes,omitempty" mapstructure:"processes,omitempty"`
-	Edges           *[]agentMessagePostResponseEdges          `json:"edges,omitempty" mapstructure:"edges,omitempty"`
-	Commands        *[]agentMessagePostResponseCommands       `json:"commands,omitempty" mapstructure:"commands,omitempty"`
-	ProcessResponse *interface{}                              `json:"process_response,omitempty" mapstructure:"process_response,omitempty"`
-	Keylogs         *[]agentMessagePostResponseKeylogs        `json:"keylogs,omitempty" mapstructure:"keylogs,omitempty"`
-	Tokens          *[]agentMessagePostResponseToken          `json:"tokens,omitempty" mapstructure:"tokens,omitempty"`
-	CallbackTokens  *[]agentMessagePostResponseCallbackTokens `json:"callback_tokens,omitempty" mapstructure:"callback_tokens,omitempty"`
-	Download        *agentMessagePostResponseDownload         `json:"download,omitempty" mapstructure:"download,omitempty"`
-	Upload          *agentMessagePostResponseUpload           `json:"upload,omitempty" mapstructure:"upload,omitempty"`
-	Alerts          *[]agentMessagePostResponseAlert          `json:"alerts,omitempty" mapstructure:"alerts,omitempty"`
+	TaskID          string                                    `json:"task_id" mapstructure:"task_id" xml:"task_id"`
+	SequenceNumber  *int64                                    `json:"sequence_num,omitempty" mapstructure:"sequence_num,omitempty" xml:"sequence_num,omitempty"`
+	Completed       *bool                                     `json:"completed,omitempty" mapstructure:"completed,omitempty" xml:"completed,omitempty"`
+	UserOutput      *string                                   `json:"user_output,omitempty" mapstructure:"user_output,omitempty" xml:"user_output,omitempty"`
+	Status          *string                                   `json:"status,omitempty" mapstructure:"status,omitempty" xml:"status,omitempty"`
+	FileBrowser     *agentMessagePostResponseFileBrowser      `json:"file_browser,omitempty" mapstructure:"file_browser,omitempty" xml:"file_browser,omitempty"`
+	RemovedFiles    *[]agentMessagePostResponseRemovedFiles   `json:"removed_files,omitempty" mapstructure:"removed_files,omitempty" xml:"removed_files,omitempty"`
+	Credentials     *[]agentMessagePostResponseCredentials    `json:"credentials,omitempty" mapstructure:"credentials,omitempty" xml:"credentials,omitempty"`
+	Artifacts       *[]agentMessagePostResponseArtifacts      `json:"artifacts,omitempty" mapstructure:"artifacts,omitempty" xml:"artifacts,omitempty"`
+	Processes       *[]agentMessagePostResponseProcesses      `json:"processes,omitempty" mapstructure:"processes,omitempty" xml:"processes,omitempty"`
+	Edges           *[]agentMessagePostResponseEdges          `json:"edges,omitempty" mapstructure:"edges,omitempty" xml:"edges,omitempty"`
+	Commands        *[]agentMessagePostResponseCommands       `json:"commands,omitempty" mapstructure:"commands,omitempty" xml:"commands,omitempty"`
+	ProcessResponse *interface{}                              `json:"process_response,omitempty" mapstructure:"process_response,omitempty" xml:"process_response,omitempty"`
+	Keylogs         *[]agentMessagePostResponseKeylogs        `json:"keylogs,omitempty" mapstructure:"keylogs,omitempty" xml:"keylogs,omitempty"`
+	Tokens          *[]agentMessagePostResponseToken          `json:"tokens,omitempty" mapstructure:"tokens,omitempty" xml:"tokens,omitempty"`
+	CallbackTokens  *[]agentMessagePostResponseCallbackTokens `json:"callback_tokens,omitempty" mapstructure:"callback_tokens,omitempty" xml:"callback_tokens,omitempty"`
+	Download        *agentMessagePostResponseDownload         `json:"download,omitempty" mapstructure:"download,omitempty" xml:"download,omitempty"`
+	Upload          *agentMessagePostResponseUpload           `json:"upload,omitempty" mapstructure:"upload,omitempty" xml:"upload,omitempty"`
+	Alerts          *[]agentMessagePostResponseAlert          `json:"alerts,omitempty" mapstructure:"alerts,omitempty" xml:"alerts,omitempty"`
 	Other           map[string]interface{}                    `json:"-" mapstructure:",remain"` // capture any 'other' keys that were passed in so we can reply back with them
 }
 
 var ValidCredentialTypesList = []string{"plaintext", "certificate", "hash", "key", "ticket", "cookie", "hex"}
 
 type agentMessagePostResponseFileBrowser struct {
-	Host          string                                         `json:"host" mapstructure:"host"`
-	IsFile        bool                                           `json:"is_file" mapstructure:"is_file"`
-	Permissions   interface{}                                    `json:"permissions" mapstructure:"permissions"`
-	Name          string                                         `json:"name" mapstructure:"name"`
-	ParentPath    string                                         `json:"parent_path" mapstructure:"parent_path"`
-	Success       bool                                           `json:"success" mapstructure:"success"`
-	AccessTime    uint64                                         `json:"access_time" mapstructure:"access_time"`
-	ModifyTime    uint64                                         `json:"modify_time" mapstructure:"modify_time"`
-	Size          uint64                                         `json:"size" mapstructure:"size"`
-	UpdateDeleted *bool                                          `json:"update_deleted,omitempty" mapstructure:"update_deleted,omitempty"` // option to treat this response as full source of truth
-	Files         *[]agentMessagePostResponseFileBrowserChildren `json:"files" mapstructure:"files"`
+	Host          string                                         `json:"host" mapstructure:"host" xml:"host"`
+	IsFile        bool                                           `json:"is_file" mapstructure:"is_file" xml:"is_file"`
+	Permissions   interface{}                                    `json:"permissions" mapstructure:"permissions" xml:"permissions"`
+	Name          string                                         `json:"name" mapstructure:"name" xml:"name"`
+	ParentPath    string                                         `json:"parent_path" mapstructure:"parent_path" xml:"parent_path"`
+	Success       *bool                                          `json:"success,omitempty" mapstructure:"success,omitempty" xml:"success,omitempty"`
+	AccessTime    uint64                                         `json:"access_time" mapstructure:"access_time" xml:"access_time"`
+	ModifyTime    uint64                                         `json:"modify_time" mapstructure:"modify_time" xml:"modify_time"`
+	Size          uint64                                         `json:"size" mapstructure:"size" xml:"size"`
+	UpdateDeleted *bool                                          `json:"update_deleted,omitempty" mapstructure:"update_deleted,omitempty" xml:"update_deleted,omitempty"` // option to treat this response as full source of truth
+	Files         *[]agentMessagePostResponseFileBrowserChildren `json:"files" mapstructure:"files" xml:"files"`
 }
 type agentMessagePostResponseFileBrowserChildren struct {
-	IsFile      bool        `json:"is_file" mapstructure:"is_file"`
-	Permissions interface{} `json:"permissions" mapstructure:"permissions"`
-	Name        string      `json:"name" mapstructure:"name"`
-	AccessTime  uint64      `json:"access_time" mapstructure:"access_time"`
-	ModifyTime  uint64      `json:"modify_time" mapstructure:"modify_time"`
-	Size        uint64      `json:"size" mapstructure:"size"`
+	IsFile      bool        `json:"is_file" mapstructure:"is_file" xml:"is_file"`
+	Permissions interface{} `json:"permissions" mapstructure:"permissions" xml:"permissions"`
+	Name        string      `json:"name" mapstructure:"name" xml:"name"`
+	AccessTime  uint64      `json:"access_time" mapstructure:"access_time" xml:"access_time"`
+	ModifyTime  uint64      `json:"modify_time" mapstructure:"modify_time" xml:"modify_time"`
+	Size        uint64      `json:"size" mapstructure:"size" xml:"size"`
 }
 type agentMessagePostResponseRemovedFiles struct {
-	Host *string `json:"host,omitempty" mapstructure:"host,omitempty"`
-	Path string  `json:"path" mapstructure:"path"` // full path to file removed
+	Host *string `json:"host,omitempty" mapstructure:"host,omitempty" xml:"host,omitempty"`
+	Path string  `json:"path" mapstructure:"path" xml:"path"` // full path to file removed
 }
 type agentMessagePostResponseCredentials struct {
-	CredentialType string `json:"credential_type" mapstructure:"credential_type"`
-	Realm          string `json:"realm" mapstructure:"realm"`
-	Account        string `json:"account" mapstructure:"account"`
-	Credential     string `json:"credential" mapstructure:"credential"`
-	Comment        string `json:"comment" mapstructure:"comment"`
-	ExtraData      string `json:"metadata" mapstructure:"metadata"`
+	CredentialType string `json:"credential_type" mapstructure:"credential_type" xml:"credential_type"`
+	Realm          string `json:"realm" mapstructure:"realm" xml:"realm"`
+	Account        string `json:"account" mapstructure:"account" xml:"account"`
+	Credential     string `json:"credential" mapstructure:"credential" xml:"credential"`
+	Comment        string `json:"comment" mapstructure:"comment" xml:"comment"`
+	ExtraData      string `json:"metadata" mapstructure:"metadata" xml:"metadata"`
 }
 type agentMessagePostResponseArtifacts struct {
-	BaseArtifact string  `json:"base_artifact" mapstructure:"base_artifact"`
-	Artifact     string  `json:"artifact" mapstructure:"artifact"`
-	Host         *string `json:"host" mapstructure:"host"`
+	BaseArtifact string  `json:"base_artifact" mapstructure:"base_artifact" xml:"base_artifact"`
+	Artifact     string  `json:"artifact" mapstructure:"artifact" xml:"artifact"`
+	Host         *string `json:"host" mapstructure:"host" xml:"host"`
+	NeedsCleanup *bool   `json:"needs_cleanup,omitempty" mapstructure:"needs_cleanup,omitempty" xml:"needs_cleanup,omitempty"`
+	Resolved     *bool   `json:"resolved,omitempty" mapstructure:"resolved,omitempty" xml:"resolved,omitempty"`
 }
 type agentMessagePostResponseProcesses struct {
-	Host                   *string                `mapstructure:"host,omitempty" json:"host,omitempty"`
-	ProcessID              int                    `mapstructure:"process_id" json:"process_id"`
-	ParentProcessID        int                    `mapstructure:"parent_process_id" json:"parent_process_id"`
-	Architecture           string                 `mapstructure:"architecture" json:"architecture"`
-	BinPath                string                 `mapstructure:"bin_path" json:"bin_path"`
-	Name                   string                 `mapstructure:"name" json:"name"`
-	User                   string                 `mapstructure:"user" json:"user"`
-	CommandLine            string                 `mapstructure:"command_line" json:"command_line"`
-	IntegrityLevel         int                    `mapstructure:"integrity_level" json:"integrity_level"`
-	StartTime              uint64                 `mapstructure:"start_time" json:"start_time"`
-	Description            string                 `mapstructure:"description" json:"description"`
-	Signer                 string                 `mapstructure:"signer" json:"signer"`
-	ProtectionProcessLevel int                    `mapstructure:"protected_process_level" json:"protected_process_level"`
-	UpdateDeleted          *bool                  `mapstructure:"update_deleted,omitempty" json:"update_deleted,omitempty"`
-	OS                     *string                `mapstructure:"os,omitempty" json:"os,omitempty"`
+	Host                   *string                `mapstructure:"host,omitempty" json:"host,omitempty" xml:"host,omitempty"`
+	ProcessID              int                    `mapstructure:"process_id" json:"process_id" xml:"process_id"`
+	ParentProcessID        int                    `mapstructure:"parent_process_id" json:"parent_process_id" xml:"parent_process_id"`
+	Architecture           string                 `mapstructure:"architecture" json:"architecture" xml:"architecture"`
+	BinPath                string                 `mapstructure:"bin_path" json:"bin_path" xml:"bin_path"`
+	Name                   string                 `mapstructure:"name" json:"name" xml:"name"`
+	User                   string                 `mapstructure:"user" json:"user" xml:"user"`
+	CommandLine            string                 `mapstructure:"command_line" json:"command_line" xml:"command_line"`
+	IntegrityLevel         int                    `mapstructure:"integrity_level" json:"integrity_level" xml:"integrity_level"`
+	StartTime              uint64                 `mapstructure:"start_time" json:"start_time" xml:"start_time"`
+	Description            string                 `mapstructure:"description" json:"description" xml:"description"`
+	Signer                 string                 `mapstructure:"signer" json:"signer" xml:"signer"`
+	ProtectionProcessLevel int                    `mapstructure:"protected_process_level" json:"protected_process_level" xml:"protected_process_level"`
+	UpdateDeleted          *bool                  `mapstructure:"update_deleted,omitempty" json:"update_deleted,omitempty" xml:"update_deleted,omitempty"`
+	OS                     *string                `mapstructure:"os,omitempty" json:"os,omitempty" xml:"os,omitempty"`
 	Other                  map[string]interface{} `json:"-" mapstructure:",remain"`
 }
 type agentMessagePostResponseEdges struct {
-	Source      string `json:"source" mapstructure:"source"`
-	Destination string `json:"destination" mapstructure:"destination"`
-	Action      string `json:"action" mapstructure:"action"`
-	C2Profile   string `json:"c2_profile" mapstructure:"c2_profile"`
-	Metadata    string `json:"metadata" mapstructure:"metadata"`
+	Source      string `json:"source" mapstructure:"source" xml:"source"`
+	Destination string `json:"destination" mapstructure:"destination" xml:"destination"`
+	Action      string `json:"action" mapstructure:"action" xml:"action"`
+	C2Profile   string `json:"c2_profile" mapstructure:"c2_profile" xml:"c2_profile"`
+	Metadata    string `json:"metadata" mapstructure:"metadata" xml:"metadata"`
 }
 type agentMessagePostResponseCommands struct {
-	Action  string `json:"action" mapstructure:"action"`
-	Command string `json:"cmd" mapstructure:"cmd"`
+	Action  string `json:"action" mapstructure:"action" xml:"action"`
+	Command string `json:"cmd" mapstructure:"cmd" xml:"cmd"`
 }
 type agentMessagePostResponseKeylogs struct {
-	WindowTitle string `json:"window_title" mapstructure:"window_title"`
-	User        string `json:"user" mapstructure:"user"`
-	Keystrokes  string `json:"keystrokes" mapstructure:"keystrokes"`
+	WindowTitle string `json:"window_title" mapstructure:"window_title" xml:"window_title"`
+	User        string `json:"user" mapstructure:"user" xml:"user"`
+	Keystrokes  string `json:"keystrokes" mapstructure:"keystrokes" xml:"keystrokes"`
 }
 type agentMessagePostResponseToken struct {
-	Action             string `json:"action" mapstructure:"action"`
-	TokenID            uint64 `json:"token_id" mapstructure:"token_id"`
-	User               string `json:"user" mapstructure:"user"`
-	Groups             string `json:"groups" mapstructure:"groups"`
-	Privileges         string `json:"privileges" mapstructure:"privileges"`
-	ThreadID           int    `json:"thread_id" mapstructure:"thread_id"`
-	ProcessID          int    `json:"process_id" mapstructure:"process_id"`
-	SessionID          int    `json:"session_id" mapstructure:"session_id"`
-	LogonSID           string `json:"logon_sid" mapstructure:"logon_sid"`
-	IntegrityLevelSID  string `json:"integrity_level_sid" mapstructure:"integrity_level_sid"`
-	Restricted         bool   `json:"restricted" mapstructure:"restricted"`
-	DefaultDacl        string `json:"default_dacl" mapstructure:"default_dacl"`
-	Handle             int    `json:"handle" mapstructure:"handle"`
-	Capabilities       string `json:"capabilities" mapstructure:"capabilities"`
-	AppContainerSID    string `json:"app_container_sid" mapstructure:"app_container_sid"`
-	AppContainerNumber int    `json:"app_container_number" mapstructure:"app_container_number"`
+	Action             string `json:"action" mapstructure:"action" xml:"action"`
+	TokenID            uint64 `json:"token_id" mapstructure:"token_id" xml:"token_id"`
+	User               string `json:"user" mapstructure:"user" xml:"user"`
+	Groups             string `json:"groups" mapstructure:"groups" xml:"groups"`
+	Privileges         string `json:"privileges" mapstructure:"privileges" xml:"privileges"`
+	ThreadID           int    `json:"thread_id" mapstructure:"thread_id" xml:"thread_id"`
+	ProcessID          int    `json:"process_id" mapstructure:"process_id" xml:"process_id"`
+	SessionID          int    `json:"session_id" mapstructure:"session_id" xml:"session_id"`
+	LogonSID           string `json:"logon_sid" mapstructure:"logon_sid" xml:"logon_sid"`
+	IntegrityLevelSID  string `json:"integrity_level_sid" mapstructure:"integrity_level_sid" xml:"integrity_level_sid"`
+	Restricted         bool   `json:"restricted" mapstructure:"restricted" xml:"restricted"`
+	DefaultDacl        string `json:"default_dacl" mapstructure:"default_dacl" xml:"default_dacl"`
+	Handle             int    `json:"handle" mapstructure:"handle" xml:"handle"`
+	Capabilities       string `json:"capabilities" mapstructure:"capabilities" xml:"capabilities"`
+	AppContainerSID    string `json:"app_container_sid" mapstructure:"app_container_sid" xml:"app_container_sid"`
+	AppContainerNumber int    `json:"app_container_number" mapstructure:"app_container_number" xml:"app_container_number"`
 }
 type agentMessagePostResponseCallbackTokens struct {
-	Action  string  `json:"action" mapstructure:"action"`
-	Host    *string `json:"host,omitempty" mapstructure:"host,omitempty"`
-	TokenId uint64  `json:"token_id" mapstructure:"token_id"`
+	Action  string  `json:"action" mapstructure:"action" xml:"action"`
+	Host    *string `json:"host,omitempty" mapstructure:"host,omitempty" xml:"host,omitempty"`
+	TokenId uint64  `json:"token_id" mapstructure:"token_id" xml:"token_id"`
 	// optionally also provide all the token information
 	TokenInfo *agentMessagePostResponseToken `mapstructure:"token"`
 }
 type agentMessagePostResponseDownload struct {
 	// Transfer a file from agent -> Mythic
-	TotalChunks  *int                   `json:"total_chunks,omitempty" mapstructure:"total_chunks,omitempty"`
-	ChunkSize    *int                   `json:"chunk_size,omitempty" mapstructure:"chunk_size,omitempty"`
-	ChunkData    *string                `json:"chunk_data,omitempty" mapstructure:"chunk_data,omitempty"`
-	ChunkNum     *int                   `json:"chunk_num,omitempty" mapstructure:"chunk_num,omitempty"`
-	FullPath     *string                `json:"full_path,omitempty" mapstructure:"full_path,omitempty"`
-	FileName     *string                `json:"filename,omitempty" mapstructure:"filename,omitempty"`
-	FileID       *string                `json:"file_id,omitempty" mapstructure:"file_id,omitempty"`
-	Host         *string                `json:"host,omitempty" mapstructure:"host,omitempty"`
-	IsScreenshot *bool                  `json:"is_screenshot,omitempty" mapstructure:"is_screenshot,omitempty"`
+	TotalChunks  *int                   `json:"total_chunks,omitempty" mapstructure:"total_chunks,omitempty" xml:"total_chunks,omitempty"`
+	ChunkSize    *int                   `json:"chunk_size,omitempty" mapstructure:"chunk_size,omitempty" xml:"chunk_size,omitempty"`
+	ChunkData    *string                `json:"chunk_data,omitempty" mapstructure:"chunk_data,omitempty" xml:"chunk_data,omitempty"`
+	ChunkNum     *int                   `json:"chunk_num,omitempty" mapstructure:"chunk_num,omitempty" xml:"chunk_num,omitempty"`
+	FullPath     *string                `json:"full_path,omitempty" mapstructure:"full_path,omitempty" xml:"full_path,omitempty"`
+	FileName     *string                `json:"filename,omitempty" mapstructure:"filename,omitempty" xml:"filename,omitempty"`
+	FileID       *string                `json:"file_id,omitempty" mapstructure:"file_id,omitempty" xml:"file_id,omitempty"`
+	Host         *string                `json:"host,omitempty" mapstructure:"host,omitempty" xml:"host,omitempty"`
+	IsScreenshot *bool                  `json:"is_screenshot,omitempty" mapstructure:"is_screenshot,omitempty" xml:"is_screenshot,omitempty"`
 	Other        map[string]interface{} `json:"-" mapstructure:",remain"` // capture any 'other' keys that were passed in, so we can reply back with them
 }
 type agentMessagePostResponseUpload struct {
 	// Transfer a file from Mythic -> Agent
-	ChunkSize *int                   `json:"chunk_size,omitempty" mapstructure:"chunk_size,omitempty"`
-	ChunkNum  int                    `json:"chunk_num" mapstructure:"chunk_num"`
-	FullPath  *string                `json:"full_path,omitempty" mapstructure:"full_path,omitempty"`
-	FileID    *string                `json:"file_id,omitempty" mapstructure:"file_id,omitempty"`
-	Host      *string                `json:"host,omitempty" mapstructure:"host,omitempty"`
+	ChunkSize *int                   `json:"chunk_size,omitempty" mapstructure:"chunk_size,omitempty" xml:"chunk_size,omitempty"`
+	ChunkNum  int                    `json:"chunk_num" mapstructure:"chunk_num" xml:"chunk_num"`
+	FullPath  *string                `json:"full_path,omitempty" mapstructure:"full_path,omitempty" xml:"full_path,omitempty"`
+	FileID    *string                `json:"file_id,omitempty" mapstructure:"file_id,omitempty" xml:"file_id,omitempty"`
+	Host      *string                `json:"host,omitempty" mapstructure:"host,omitempty" xml:"host,omitempty"`
 	Other     map[string]interface{} `json:"-" mapstructure:",remain"` // capture any 'other' keys that were passed in, so we can reply back with them
 }
 type agentMessagePostResponseUploadResponse struct {
-	FileID      string `json:"file_id" mapstructure:"file_id"`
-	TotalChunks int    `json:"total_chunks" mapstructure:"total_chunks"`
-	ChunkData   []byte `json:"chunk_data" mapstructure:"chunk_data"`
-	ChunkNum    int    `json:"chunk_num" mapstructure:"chunk_num"`
+	FileID      string `json:"file_id" mapstructure:"file_id" xml:"file_id"`
+	TotalChunks int    `json:"total_chunks" mapstructure:"total_chunks" xml:"total_chunks"`
+	ChunkData   []byte `json:"chunk_data" mapstructure:"chunk_data" xml:"chunk_data"`
+	ChunkNum    int    `json:"chunk_num" mapstructure:"chunk_num" xml:"chunk_num"`
 }
 type agentMessagePostResponseAlert struct {
-	Source       *string                 `json:"source,omitempty" mapstructure:"source,omitempty"`
-	Alert        string                  `json:"alert" mapstructure:"alert"`
-	WebhookAlert *map[string]interface{} `json:"webhook_alert,omitempty" mapstructure:"webhook_alert"`
-	Level        *string                 `json:"level,omitempty" mapstructure:"level"`
-	SendWebhook  bool                    `json:"send_webhook" mapstructure:"send_webhook"`
+	Source       *string                 `json:"source,omitempty" mapstructure:"source,omitempty" xml:"source,omitempty"`
+	Alert        string                  `json:"alert" mapstructure:"alert" xml:"alert"`
+	WebhookAlert *map[string]interface{} `json:"webhook_alert,omitempty" mapstructure:"webhook_alert" xml:"webhook_alert"`
+	Level        *string                 `json:"level,omitempty" mapstructure:"level" xml:"level"`
+	SendWebhook  bool                    `json:"send_webhook" mapstructure:"send_webhook" xml:"send_webhook"`
 }
 type agentMessagePostResponseInteractive struct {
-	TaskUUID    string                      `json:"task_id" mapstructure:"task_id"`
-	Data        string                      `json:"data" mapstructure:"data"`
-	MessageType InteractiveTask.MessageType `json:"message_type" mapstructure:"message_type"`
+	TaskUUID    string                      `json:"task_id" mapstructure:"task_id" xml:"task_id"`
+	Data        string                      `json:"data" mapstructure:"data" xml:"data"`
+	MessageType InteractiveTask.MessageType `json:"message_type" mapstructure:"message_type" xml:"message_type"`
 }
 
 // writeDownloadChunkToDiskChan is a blocking call intentionally
@@ -207,6 +211,80 @@ type writeDownloadChunkToDisk struct {
 
 var writeDownloadChunkToDiskChan = make(chan writeDownloadChunkToDisk)
 
+// GraphQLHandleAgentMessagePostResponse allows one-off GraphQL queries to submit full post-response data to Mythic
+func GraphQLHandleAgentMessagePostResponse(callbackDisplayID int, operationID int, incoming map[string]interface{}) (map[string]interface{}, error) {
+	callback := databaseStructs.Callback{}
+	err := database.DB.Get(&callback, `SELECT * FROM callback WHERE display_id=$1 AND operation_id=$2`, callbackDisplayID, operationID)
+	if err != nil {
+		return nil, err
+	}
+	uUIDInfo := cachedUUIDInfo{
+		OperationID:       operationID,
+		CallbackID:        callback.ID,
+		CallbackDisplayID: callback.DisplayID,
+		UUID:              callback.AgentCallbackID,
+		UUIDType:          "callback",
+	}
+	responseMessage := map[string]interface{}{
+		"action":    "post_response",
+		"responses": []interface{}{incoming},
+	}
+	return handleAgentMessagePostResponse(&responseMessage, &uUIDInfo)
+}
+
+type agentAgentMessagePostResponseChannelMessage struct {
+	Response    string
+	SequenceNum *int64
+	Task        databaseStructs.Task
+}
+
+var asyncAgentMessagePostResponseChannel = make(chan agentAgentMessagePostResponseChannelMessage, 100)
+
+func listenForAsyncAgentMessagePostResponseContent() {
+	for {
+		msg := <-asyncAgentMessagePostResponseChannel
+
+		// this is coming from an agent and needs to check if there's a workflow to kick off
+		// might need to create a response ID
+		eventGroup := databaseStructs.EventGroup{}
+		err := database.DB.Get(&eventGroup, `SELECT id FROM eventgroup WHERE
+                              operation_id=$1 AND active=true AND deleted=false AND trigger=$2`,
+			msg.Task.OperationID, eventing.TriggerResponseIntercept)
+		if errors.Is(err, sql.ErrNoRows) {
+			handleAgentMessagePostResponseUserOutput(msg.Task, agentMessagePostResponse{
+				TaskID:         msg.Task.AgentTaskID,
+				UserOutput:     &msg.Response,
+				SequenceNumber: msg.SequenceNum,
+			}, true)
+			continue
+		}
+		if err != nil {
+			logging.LogError(err, "failed to find event groups")
+			handleAgentMessagePostResponseUserOutput(msg.Task, agentMessagePostResponse{
+				TaskID:         msg.Task.AgentTaskID,
+				UserOutput:     &msg.Response,
+				SequenceNumber: msg.SequenceNum,
+			}, true)
+			continue
+		}
+
+		output := ""
+		responseID := handleAgentMessagePostResponseUserOutput(msg.Task, agentMessagePostResponse{
+			TaskID:         msg.Task.AgentTaskID,
+			UserOutput:     &output,
+			SequenceNumber: msg.SequenceNum,
+		}, false)
+		// we have an interception possibility, so send that off for processing
+		EventingChannel <- EventNotification{
+			Trigger:               eventing.TriggerResponseIntercept,
+			OperationID:           msg.Task.OperationID,
+			EventGroupID:          eventGroup.ID,
+			ResponseID:            responseID,
+			TaskID:                msg.Task.ID,
+			ResponseInterceptData: msg.Response,
+		}
+	}
+}
 func handleAgentMessagePostResponse(incoming *map[string]interface{}, uUIDInfo *cachedUUIDInfo) (map[string]interface{}, error) {
 	// got message:
 	/*
@@ -218,22 +296,34 @@ func handleAgentMessagePostResponse(incoming *map[string]interface{}, uUIDInfo *
 		}
 	*/
 	agentMessage := agentMessagePostResponseMessage{}
-	if err := mapstructure.Decode(incoming, &agentMessage); err != nil {
-		logging.LogError(err, "Failed to decode agent message into struct")
-		return nil, errors.New(fmt.Sprintf("Failed to decode agent message into handleAgentMessagePostResponse struct: %s", err.Error()))
-	} else {
-		responses := []map[string]interface{}{}
-		// iterate over the agent messages
-		for _, agentResponse := range agentMessage.Responses {
-			mythicResponse := map[string]interface{}{
-				"task_id": agentResponse.TaskID,
-				"status":  "success",
-			}
-			//logging.LogDebug("Got response data from agent", "response data", agentResponse, "extra keys", agentResponse.Other)
-			// every response should be tied to some task
-			currentTask := databaseStructs.Task{AgentTaskID: agentResponse.TaskID}
-			if err := database.DB.Get(&currentTask, `SELECT
+	err := mapstructure.Decode(incoming, &agentMessage)
+	if err != nil {
+		logging.LogError(err, "Failed to decode agent message into struct, ignoring and continuing on")
+		delete(*incoming, "responses")
+		badMessageString, err2 := json.MarshalIndent(incoming, "", "    ")
+		if err2 != nil {
+			go SendAllOperationsMessage(fmt.Sprintf("Failed to process agent message: \n%s\n%s\n", err2.Error(), err.Error()),
+				uUIDInfo.OperationID, "agent_message_bad_post_response", database.MESSAGE_LEVEL_WARNING)
+		} else {
+			badMessage := fmt.Sprintf("Failed to process agent message:\n%s\n%s\n", err.Error(), string(badMessageString))
+			go SendAllOperationsMessage(badMessage,
+				uUIDInfo.OperationID, "agent_message_bad_post_response", database.MESSAGE_LEVEL_WARNING)
+		}
+		return map[string]interface{}{}, nil
+	}
+	responses := []map[string]interface{}{}
+	// iterate over the agent messages
+	for _, agentResponse := range agentMessage.Responses {
+		mythicResponse := map[string]interface{}{
+			"task_id": agentResponse.TaskID,
+			"status":  "success",
+		}
+		//logging.LogDebug("Got response data from agent", "response data", agentResponse, "extra keys", agentResponse.Other)
+		// every response should be tied to some task
+		currentTask := databaseStructs.Task{AgentTaskID: agentResponse.TaskID}
+		err = database.DB.Get(&currentTask, `SELECT
 			task.id, task.status, task.completed, task.status_timestamp_processed, task.operator_id, task.operation_id,
+			task.eventstepinstance_id, task.apitokens_id,
 			callback.host "callback.host",
 			callback.user "callback.user",
 			callback.id "callback.id",
@@ -243,141 +333,165 @@ func handleAgentMessagePostResponse(incoming *map[string]interface{}, uUIDInfo *
 			FROM task
 			JOIN callback ON task.callback_id = callback.id
 			JOIN payload ON callback.registered_payload_id = payload.id
-			WHERE task.agent_task_id=$1`, currentTask.AgentTaskID); err != nil {
-				logging.LogError(err, "Failed to find task", "task id", currentTask.AgentTaskID)
+			WHERE task.agent_task_id=$1`, currentTask.AgentTaskID)
+		if err != nil {
+			logging.LogError(err, "Failed to find task", "task id", currentTask.AgentTaskID)
+			mythicResponse["status"] = "error"
+			mythicResponse["error"] = "Failed to find task"
+			responses = append(responses, mythicResponse)
+			continue
+		}
+		// always process here
+		if agentResponse.Download != nil {
+			if newFileID, err := handleAgentMessagePostResponseDownload(currentTask, agentResponse); err != nil {
 				mythicResponse["status"] = "error"
-				mythicResponse["error"] = "Failed to find task"
-				responses = append(responses, mythicResponse)
-				continue
+				mythicResponse["error"] = err.Error()
 			} else {
-				// always update the timestamp
-				updatedToCompleted := false
-				currentTask.Timestamp = time.Now().UTC()
-				// status_timestamp_processed might be updated if this is the first time we actually got something back from the agent
-				if !currentTask.StatusTimestampProcessed.Valid {
-					currentTask.StatusTimestampProcessed.Time = currentTask.Timestamp
-					currentTask.StatusTimestampProcessed.Valid = true
-				}
-				if agentResponse.Completed != nil {
-					if *agentResponse.Completed {
-						if !currentTask.Completed {
-							updatedToCompleted = true
-						}
-						currentTask.Completed = *agentResponse.Completed
-					}
-				}
-				if agentResponse.Status != nil && *agentResponse.Status != "" {
-					if currentTask.Status != PT_TASK_FUNCTION_STATUS_COMPLETED {
-						currentTask.Status = *agentResponse.Status
-					}
-				} else if agentResponse.Completed != nil && *agentResponse.Completed {
-					currentTask.Status = PT_TASK_FUNCTION_STATUS_COMPLETED
-				} else if currentTask.Status == PT_TASK_FUNCTION_STATUS_PROCESSING {
-					currentTask.Status = PT_TASK_FUNCTION_STATUS_PROCESSED
-				}
-				if agentResponse.UserOutput != nil {
-					// do it in the background - the agent doesn't need the result of this directly
-					handleAgentMessagePostResponseUserOutput(currentTask, agentResponse)
-				}
-				if agentResponse.FileBrowser != nil {
-					// do it in the background - the agent doesn't need the result of this directly
-					go handleAgentMessagePostResponseFileBrowser(currentTask, agentResponse.FileBrowser)
-				}
-				if agentResponse.Processes != nil {
-					go handleAgentMessagePostResponseProcesses(currentTask, agentResponse.Processes)
-				}
-				if agentResponse.RemovedFiles != nil {
-					go handleAgentMessagePostResponseRemovedFiles(currentTask, agentResponse.RemovedFiles)
-				}
-				if agentResponse.Credentials != nil {
-					go handleAgentMessagePostResponseCredentials(currentTask, agentResponse.Credentials)
-				}
-				if agentResponse.Artifacts != nil {
-					go handleAgentMessagePostResponseArtifacts(currentTask, agentResponse.Artifacts)
-				}
-				if agentResponse.Keylogs != nil {
-					go handleAgentMessagePostResponseKeylogs(currentTask, agentResponse.Keylogs)
-				}
-				if agentResponse.Tokens != nil && agentResponse.CallbackTokens != nil {
-					// need to make sure we process tokens _then_ process callback tokens
-					go handleAgentMessagePostResponseCallbackTokensAndTokens(currentTask, agentResponse.Tokens, agentResponse.CallbackTokens)
-				} else {
-					if agentResponse.Tokens != nil {
-						go handleAgentMessagePostResponseTokens(currentTask, agentResponse.Tokens)
-					}
-					if agentResponse.CallbackTokens != nil {
-						go handleAgentMessagePostResponseCallbackTokens(currentTask, agentResponse.CallbackTokens)
-					}
-				}
-				if agentResponse.ProcessResponse != nil {
-					go handleAgentMessagePostResponseProcessResponse(currentTask, agentResponse.ProcessResponse)
-				}
-				if agentResponse.Commands != nil {
-					go handleAgentMessagePostResponseCommands(currentTask, agentResponse.Commands)
-				}
-				if agentResponse.Edges != nil {
-					go handleAgentMessagePostResponseEdges(uUIDInfo, agentResponse.Edges)
-				}
-				if agentResponse.Download != nil {
-					if newFileID, err := handleAgentMessagePostResponseDownload(currentTask, agentResponse); err != nil {
-						mythicResponse["status"] = "error"
-						mythicResponse["error"] = err.Error()
-					} else {
-						mythicResponse["file_id"] = newFileID
-					}
-				}
-				if agentResponse.Upload != nil {
-					if uploadResponse, err := handleAgentMessagePostResponseUpload(currentTask, agentResponse); err != nil {
-						mythicResponse["status"] = "error"
-						mythicResponse["error"] = err.Error()
-						logging.LogError(err, "Failed to handle agent upload")
-					} else if err := mapstructure.Decode(uploadResponse, &mythicResponse); err != nil {
-						mythicResponse["status"] = "error"
-						mythicResponse["error"] = err.Error()
-						logging.LogError(err, "Failed to decode mapstructure for agent upload response")
-					}
-				}
-				if agentResponse.Alerts != nil {
-					go handleAgentMessagePostResponseAlerts(currentTask.OperationID, uUIDInfo.CallbackID, agentResponse.Alerts)
-				}
-				reflectBackOtherKeys(&mythicResponse, &agentResponse.Other)
-				// always updating at least the timestamp for the last thing that happened
-				if _, err := database.DB.NamedExec(`UPDATE task SET
-				status=:status, completed=:completed, status_timestamp_processed=:status_timestamp_processed, "timestamp"=:timestamp
-				WHERE id=:id`, currentTask); err != nil {
-					logging.LogError(err, "Failed to update task from agent response")
-					mythicResponse["status"] = "error"
-					mythicResponse["error"] = "Failed to update task"
-					responses = append(responses, mythicResponse)
-				} else {
-					responses = append(responses, mythicResponse)
-					if currentTask.Completed && updatedToCompleted {
-						// use updatedToCompleted to try to make sure we only do this once per task
-						go CheckAndProcessTaskCompletionHandlers(currentTask.ID)
-						go emitTaskLog(currentTask.ID)
-					}
-				}
+				mythicResponse["file_id"] = newFileID
+			}
+			if agentResponse.Download.ChunkNum != nil {
+				mythicResponse["chunk_num"] = *agentResponse.Download.ChunkNum
+			}
+
+		}
+		// always process here
+		if agentResponse.Upload != nil {
+			if uploadResponse, err := handleAgentMessagePostResponseUpload(currentTask, agentResponse); err != nil {
+				mythicResponse["status"] = "error"
+				mythicResponse["error"] = err.Error()
+				logging.LogError(err, "Failed to handle agent upload")
+			} else if err := mapstructure.Decode(uploadResponse, &mythicResponse); err != nil {
+				mythicResponse["status"] = "error"
+				mythicResponse["error"] = err.Error()
+				logging.LogError(err, "Failed to decode mapstructure for agent upload response")
 			}
 		}
-		response := map[string]interface{}{}
-		response["responses"] = responses
-		reflectBackOtherKeys(&response, &agentMessage.Other)
-		// remove responses so that we don't accidentally process it twice
-		delete(*incoming, "responses")
-		return response, nil
+		// always update the timestamp
+		currentTask.Timestamp = time.Now().UTC()
+		// status_timestamp_processed might be updated if this is the first time we actually got something back from the agent
+		if !currentTask.StatusTimestampProcessed.Valid {
+			currentTask.StatusTimestampProcessed.Time = currentTask.Timestamp
+			currentTask.StatusTimestampProcessed.Valid = true
+		}
+		// this section can happen async, but in order
+		updatedToCompleted := false
+		if agentResponse.Completed != nil {
+			if *agentResponse.Completed {
+				if !currentTask.Completed {
+					updatedToCompleted = true
+				}
+				currentTask.Completed = *agentResponse.Completed
+			}
+		}
+		if agentResponse.Status != nil && *agentResponse.Status != "" {
+			if currentTask.Status != PT_TASK_FUNCTION_STATUS_COMPLETED {
+				currentTask.Status = *agentResponse.Status
+			}
+		} else if agentResponse.Completed != nil && *agentResponse.Completed {
+			currentTask.Status = PT_TASK_FUNCTION_STATUS_COMPLETED
+		} else if currentTask.Status == PT_TASK_FUNCTION_STATUS_PROCESSING {
+			currentTask.Status = PT_TASK_FUNCTION_STATUS_PROCESSED
+		}
+		if agentResponse.UserOutput != nil {
+			// do it in the background - the agent doesn't need the result of this directly
+			//handleAgentMessagePostResponseUserOutput(currentTask, agentResponse, true)
+			asyncAgentMessagePostResponseChannel <- agentAgentMessagePostResponseChannelMessage{
+				Task:        currentTask,
+				Response:    *agentResponse.UserOutput,
+				SequenceNum: agentResponse.SequenceNumber,
+			}
+		}
+		if agentResponse.FileBrowser != nil {
+			// do it in the background - the agent doesn't need the result of this directly
+			go HandleAgentMessagePostResponseFileBrowser(currentTask, agentResponse.FileBrowser, 0)
+		}
+		if agentResponse.Processes != nil {
+			go HandleAgentMessagePostResponseProcesses(currentTask, agentResponse.Processes, 0)
+		}
+		if agentResponse.RemovedFiles != nil {
+			go handleAgentMessagePostResponseRemovedFiles(currentTask, agentResponse.RemovedFiles)
+		}
+		if agentResponse.Credentials != nil {
+			go handleAgentMessagePostResponseCredentials(currentTask, agentResponse.Credentials)
+		}
+		if agentResponse.Artifacts != nil {
+			go handleAgentMessagePostResponseArtifacts(currentTask, agentResponse.Artifacts)
+		}
+		if agentResponse.Keylogs != nil {
+			go handleAgentMessagePostResponseKeylogs(currentTask, agentResponse.Keylogs)
+		}
+		if agentResponse.Tokens != nil && agentResponse.CallbackTokens != nil {
+			// need to make sure we process tokens _then_ process callback tokens
+			go handleAgentMessagePostResponseCallbackTokensAndTokens(currentTask, agentResponse.Tokens, agentResponse.CallbackTokens)
+		} else {
+			if agentResponse.Tokens != nil {
+				go handleAgentMessagePostResponseTokens(currentTask, agentResponse.Tokens)
+			}
+			if agentResponse.CallbackTokens != nil {
+				go handleAgentMessagePostResponseCallbackTokens(currentTask, agentResponse.CallbackTokens)
+			}
+		}
+		if agentResponse.ProcessResponse != nil {
+			go handleAgentMessagePostResponseProcessResponse(currentTask, agentResponse.ProcessResponse)
+		}
+		if agentResponse.Commands != nil {
+			go handleAgentMessagePostResponseCommands(currentTask, agentResponse.Commands)
+		}
+		if agentResponse.Edges != nil {
+			go handleAgentMessagePostResponseEdges(uUIDInfo, agentResponse.Edges)
+		}
+		if agentResponse.Alerts != nil {
+			go handleAgentMessagePostResponseAlerts(currentTask.OperationID, uUIDInfo.CallbackID, uUIDInfo.CallbackDisplayID, agentResponse.Alerts)
+		}
+		// this section always happens
+		reflectBackOtherKeys(&mythicResponse, &agentResponse.Other)
+		// always updating at least the timestamp for the last thing that happened
+		_, err = database.DB.NamedExec(`UPDATE task SET
+				status=:status, completed=:completed, status_timestamp_processed=:status_timestamp_processed, "timestamp"=:timestamp
+				WHERE id=:id`, currentTask)
+		if err != nil {
+			logging.LogError(err, "Failed to update task from agent response")
+			mythicResponse["status"] = "error"
+			mythicResponse["error"] = "Failed to update task"
+			responses = append(responses, mythicResponse)
+			continue
+		}
+		responses = append(responses, mythicResponse)
+		if currentTask.Completed && updatedToCompleted {
+			// use updatedToCompleted to try to make sure we only do this once per task
+			go CheckAndProcessTaskCompletionHandlers(currentTask.ID)
+			go emitTaskLog(currentTask.ID)
+			go func(task databaseStructs.Task) {
+				EventingChannel <- EventNotification{
+					Trigger:             eventing.TriggerTaskFinish,
+					OperationID:         task.OperationID,
+					OperatorID:          task.OperatorID,
+					EventStepInstanceID: int(task.EventStepInstanceID.Int64),
+					TaskID:              task.ID,
+					ActionSuccess:       !strings.Contains(task.Status, "error"),
+				}
+			}(currentTask)
+		}
 	}
+	response := map[string]interface{}{}
+	response["responses"] = responses
+	reflectBackOtherKeys(&response, &agentMessage.Other)
+	// remove responses so that we don't accidentally process it twice
+	delete(*incoming, "responses")
+	return response, nil
+
 }
 
-func handleAgentMessagePostResponseUserOutput(task databaseStructs.Task, agentResponse agentMessagePostResponse) {
+func handleAgentMessagePostResponseUserOutput(task databaseStructs.Task, agentResponse agentMessagePostResponse, emitNotification bool) int {
 	responseOutput := databaseStructs.Response{
 		Timestamp:   time.Now().UTC(),
 		TaskID:      task.ID,
 		Response:    []byte(*agentResponse.UserOutput),
 		OperationID: task.OperationID,
 	}
-	if len(*agentResponse.UserOutput) == 0 {
+	if len(*agentResponse.UserOutput) == 0 && emitNotification {
 		//logging.LogError(nil, "Tried to add response of 0 bytes, returning")
-		return
+		return 0
 	}
 	if agentResponse.SequenceNumber != nil {
 		// if we're tracking sequence numbers, then there shouldn't be a matching sequence number for this task to prevent replays
@@ -385,28 +499,42 @@ func handleAgentMessagePostResponseUserOutput(task databaseStructs.Task, agentRe
 		responseOutput.SequenceNumber.Int64 = *agentResponse.SequenceNumber
 		if _, err := database.DB.NamedQuery(`SELECT id 
 		FROM response
-		WHERE sequence_number=:sequence_number AND task_id=:task_id`, responseOutput); err == sql.ErrNoRows {
+		WHERE sequence_number=:sequence_number AND task_id=:task_id`, responseOutput); errors.Is(err, sql.ErrNoRows) {
 			// we don't have this sequence number for this task yet, so we're safe to insert it
 			logging.LogInfo("Sequence number is not NULL!")
 		} else if err != nil {
 			logging.LogError(err, "Failed to fetch responses when looking for an existing sequence number")
-			return
+			return 0
 		} else {
 			// this sequence number and task do exist, so don't insert it
 			logging.LogError(nil, "Got a duplicate sequence number for a response", "task_id", responseOutput.TaskID, "sequence number", *agentResponse.SequenceNumber)
-			return
+			return 0
 		}
 	}
-	if statement, err := database.DB.PrepareNamed(`INSERT INTO response
+	statement, err := database.DB.PrepareNamed(`INSERT INTO response
 		("timestamp", task_id, response, sequence_number, operation_id)
 		VALUES (:timestamp, :task_id, :response, :sequence_number, :operation_id)
-		RETURNING id`); err != nil {
+		RETURNING id`)
+	if err != nil {
 		logging.LogError(err, "Failed to prepare new named statement for user_output", "task_id", responseOutput.TaskID)
-	} else if err := statement.Get(&responseOutput.ID, responseOutput); err != nil {
-		logging.LogError(err, "Failed to insert new user_output", "task_id", responseOutput.TaskID)
-	} else {
-		go emitResponseLog(responseOutput.ID)
+		return 0
 	}
+	err = statement.Get(&responseOutput.ID, responseOutput)
+	if err != nil {
+		logging.LogError(err, "Failed to insert new user_output", "task_id", responseOutput.TaskID)
+		return 0
+	}
+	if emitNotification {
+		go emitResponseLog(responseOutput.ID)
+		EventingChannel <- EventNotification{
+			Trigger:             eventing.TriggerUserOutput,
+			OperationID:         task.OperationID,
+			EventStepInstanceID: int(task.EventStepInstanceID.Int64),
+			ResponseID:          responseOutput.ID,
+		}
+	}
+
+	return responseOutput.ID
 }
 func handleAgentMessagePostResponseInteractiveOutput(agentResponses *[]agentMessagePostResponseInteractive) {
 	//logging.LogInfo("Got interactive responses", "responses", agentResponses)
@@ -529,9 +657,15 @@ func handleAgentMessagePostResponseArtifacts(task databaseStructs.Task, artifact
 		if newArtifact.Host != nil && *newArtifact.Host != "" {
 			databaseArtifact.Host = strings.ToUpper(*newArtifact.Host)
 		}
+		if newArtifact.NeedsCleanup != nil {
+			databaseArtifact.NeedsCleanup = *newArtifact.NeedsCleanup
+		}
+		if newArtifact.Resolved != nil {
+			databaseArtifact.Resolved = *newArtifact.Resolved
+		}
 		if statement, err := database.DB.PrepareNamed(`INSERT INTO taskartifact
-			(artifact, base_artifact, operation_id, host, task_id)
-			VALUES (:artifact, :base_artifact, :operation_id, :host, :task_id)
+			(artifact, base_artifact, operation_id, host, task_id, needs_cleanup, resolved)
+			VALUES (:artifact, :base_artifact, :operation_id, :host, :task_id, :needs_cleanup, :resolved)
 			RETURNING id`); err != nil {
 			logging.LogError(err, "Failed to register artifact", "base artifact", newArtifact.BaseArtifact, "artifact", newArtifact.Artifact)
 		} else if err = statement.Get(&databaseArtifact.ID, databaseArtifact); err != nil {
@@ -684,9 +818,9 @@ func handleAgentMessagePostResponseCallbackTokens(task databaseStructs.Task, cal
 					databaseToken.ID = databaseID
 				}
 			} else if err := database.DB.Get(&databaseToken, `SELECT id FROM token WHERE
-				 token_id=$1 AND host=$2 AND operation_id=$3`,
+				 token_id=$1 AND host=$2 AND operation_id=$3 AND deleted=false`,
 				databaseToken.TokenID, databaseToken.Host, task.OperationID); err != nil {
-				logging.LogError(err, "Failed to find token to add to callback")
+				logging.LogError(err, "Failed to find token to add to callback", "token_id", databaseToken.TokenID, "host", databaseToken.Host)
 				continue
 			}
 			databaseCallbackToken := databaseStructs.Callbacktoken{
@@ -827,6 +961,112 @@ func listenForWriteDownloadChunkToLocalDisk() {
 		}
 	}
 }
+func handleAgentMessageWriteDownloadChunkToLocalDisk(task databaseStructs.Task, fileMeta databaseStructs.Filemeta, agentResponse agentMessagePostResponse) (string, error) {
+	if !fileMeta.Complete {
+		if agentResponse.Download.ChunkData != nil && len(*agentResponse.Download.ChunkData) > 0 {
+			knownChunkSize := 0
+			if fileMeta.ChunkSize > 0 {
+				knownChunkSize = fileMeta.ChunkSize
+			} else if agentResponse.Download.ChunkSize != nil {
+				if *agentResponse.Download.ChunkSize > 0 {
+					knownChunkSize = *agentResponse.Download.ChunkSize
+				}
+			}
+			chunksWritten := make(chan int, 1)
+			base64DecodedFileData, err := base64.StdEncoding.DecodeString(*agentResponse.Download.ChunkData)
+			//base64DecodedFileData := make([]byte, base64.StdEncoding.DecodedLen(len(*agentResponse.Download.ChunkData)))
+			//totalBase64Bytes, err := base64.StdEncoding.Decode(base64DecodedFileData, []byte(*agentResponse.Download.ChunkData))
+			if err != nil {
+				logging.LogError(err, "Failed to base64 decode data to write to disk, bailing out")
+				return "", err
+			}
+			//logging.LogDebug("0. about to have mythic write to disk", "chunk num", *agentResponse.Download.ChunkNum, "byte sample", string(base64DecodedFileData[:10]))
+			writeDownloadChunkToDiskChan <- writeDownloadChunkToDisk{
+				ChunkData:       base64DecodedFileData,
+				ChunkNum:        *agentResponse.Download.ChunkNum,
+				LocalMythicPath: fileMeta.Path,
+				KnownChunkSize:  knownChunkSize,
+				ChunksWritten:   chunksWritten,
+				FileMetaID:      fileMeta.ID,
+			}
+			latestChunkWritten := <-chunksWritten
+			if latestChunkWritten > 0 {
+				fileMeta.ChunksReceived = latestChunkWritten
+			}
+			fileDisk, err := os.Stat(fileMeta.Path)
+			if err != nil {
+				logging.LogError(err, "Failed to write file to disk")
+			} else {
+				fileMeta.Size = fileDisk.Size()
+			}
+			// we don't know the chunk size ahead of time and one was reported back as part of the file write
+			//logging.LogDebug("3. finished writing", "chunk num", *agentResponse.Download.ChunkNum)
+			if *agentResponse.Download.ChunkNum == fileMeta.TotalChunks && fileMeta.TotalChunks > 1 {
+
+			} else {
+				fileMeta.ChunkSize = len(base64DecodedFileData)
+			}
+
+		}
+	}
+	// check about updating total chunk count in case the agent didn't know it ahead of time
+	if agentResponse.Download.TotalChunks != nil && *agentResponse.Download.TotalChunks > 0 {
+		if *agentResponse.Download.TotalChunks > fileMeta.TotalChunks {
+			fileMeta.TotalChunks = *agentResponse.Download.TotalChunks
+		}
+	}
+	if fileMeta.ChunksReceived == fileMeta.TotalChunks {
+		fileMeta.Complete = true
+		// also calculate new md5 and sha1 sums
+		sha1Hash := sha1.New()
+		md5Hash := md5.New()
+		if file, err := os.Open(fileMeta.Path); err != nil {
+			logging.LogError(err, "Failed to open file to calculate md5 and sha1 sums")
+			return "", err
+		} else if _, err := io.Copy(sha1Hash, file); err != nil {
+			logging.LogError(err, "Failed to copy file contents for sha1 hash")
+			return "", err
+		} else if _, err := file.Seek(0, 0); err != nil {
+			logging.LogError(err, "Failed to move file pointer back to beginning")
+		} else if _, err := io.Copy(md5Hash, file); err != nil {
+			logging.LogError(err, "Failed to copy file contents for md5 hash")
+			return "", err
+		} else {
+			fileMeta.Sha1 = hex.EncodeToString(sha1Hash.Sum(nil))
+			fileMeta.Md5 = hex.EncodeToString(md5Hash.Sum(nil))
+		}
+		fileDisk, err := os.Stat(fileMeta.Path)
+		if err != nil {
+			logging.LogError(err, "Failed to write file to disk")
+		} else {
+			fileMeta.Size = fileDisk.Size()
+		}
+	}
+	if _, err := database.DB.NamedExec(`UPDATE filemeta SET
+			host=:host, is_screenshot=:is_screenshot, 
+			full_remote_path=:full_remote_path, complete=:complete, md5=:md5, sha1=:sha1,
+			filename=:filename, total_chunks=:total_chunks, chunk_size=:chunk_size, size=:size
+			WHERE id=:id`, fileMeta); err != nil {
+		logging.LogError(err, "Failed to update filemeta based on agent file download")
+		return "", err
+	} else {
+		if fileMeta.Complete {
+			go func(file databaseStructs.Filemeta) {
+				trigger := eventing.TriggerFileDownload
+				if file.IsScreenshot {
+					trigger = eventing.TriggerScreenshot
+				}
+				EventingChannel <- EventNotification{
+					Trigger:     trigger,
+					OperationID: task.OperationID,
+					OperatorID:  task.OperatorID,
+					FileMetaID:  file.ID,
+				}
+			}(fileMeta)
+		}
+		return fileMeta.AgentFileID, nil
+	}
+}
 func handleAgentMessagePostResponseDownload(task databaseStructs.Task, agentResponse agentMessagePostResponse) (string, error) {
 	// might need to return a file_id if we're initially registering a file for transfer from agent to Mythic
 	// two stages:
@@ -862,107 +1102,9 @@ func handleAgentMessagePostResponseDownload(task databaseStructs.Task, agentResp
 			if agentResponse.Download.IsScreenshot != nil && *agentResponse.Download.IsScreenshot {
 				fileMeta.IsScreenshot = *agentResponse.Download.IsScreenshot
 			}
-			if !fileMeta.Complete {
-				if agentResponse.Download.ChunkData != nil && len(*agentResponse.Download.ChunkData) > 0 {
-					knownChunkSize := 0
-					if fileMeta.ChunkSize > 0 {
-						knownChunkSize = fileMeta.ChunkSize
-					} else if agentResponse.Download.ChunkSize != nil {
-						if *agentResponse.Download.ChunkSize > 0 {
-							knownChunkSize = *agentResponse.Download.ChunkSize
-						}
-					}
-					/*
-						// now open and append the chunk data to the end of the file
-						base64DecodedFileData := make([]byte, base64.StdEncoding.DecodedLen(len(*agentResponse.Download.ChunkData)))
-						var totalBase64Bytes int
-						if totalBase64Bytes, err = base64.StdEncoding.Decode(base64DecodedFileData, []byte(*agentResponse.Download.ChunkData)); err != nil {
-							logging.LogError(err, "Failed to base64 decode chunk data from agent when downloading file")
-							return "", err
-						} else if f, err := os.OpenFile(fileMeta.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
-							logging.LogError(err, "Failed to open file to append agent data")
-							return "", err
-						} else if _, err := f.Write(base64DecodedFileData[:totalBase64Bytes]); err != nil {
-							logging.LogError(err, "Failed to write bytes to file in agent download")
-							return "", err
-						} else {
-							if fileMeta.ChunkSize == 0 {
-								fileMeta.ChunkSize = totalBase64Bytes
-							}
-							f.Close()
-						}
-					*/
-					chunksWritten := make(chan int, 1)
-					base64DecodedFileData, err := base64.StdEncoding.DecodeString(*agentResponse.Download.ChunkData)
-					//base64DecodedFileData := make([]byte, base64.StdEncoding.DecodedLen(len(*agentResponse.Download.ChunkData)))
-					//totalBase64Bytes, err := base64.StdEncoding.Decode(base64DecodedFileData, []byte(*agentResponse.Download.ChunkData))
-					if err != nil {
-						logging.LogError(err, "Failed to base64 decode data to write to disk, bailing out")
-						return "", err
-					}
-					//logging.LogDebug("0. about to have mythic write to disk", "chunk num", *agentResponse.Download.ChunkNum, "byte sample", string(base64DecodedFileData[:10]))
-					writeDownloadChunkToDiskChan <- writeDownloadChunkToDisk{
-						ChunkData:       base64DecodedFileData,
-						ChunkNum:        *agentResponse.Download.ChunkNum,
-						LocalMythicPath: fileMeta.Path,
-						KnownChunkSize:  knownChunkSize,
-						ChunksWritten:   chunksWritten,
-						FileMetaID:      fileMeta.ID,
-					}
-					latestChunkWritten := <-chunksWritten
-					if latestChunkWritten > 0 {
-						fileMeta.ChunksReceived = latestChunkWritten
-					}
-					// we don't know the chunk size ahead of time and one was reported back as part of the file write
-					//logging.LogDebug("3. finished writing", "chunk num", *agentResponse.Download.ChunkNum)
-					if *agentResponse.Download.ChunkNum == fileMeta.TotalChunks && fileMeta.TotalChunks > 1 {
-
-					} else {
-						fileMeta.ChunkSize = len(base64DecodedFileData)
-					}
-
-				}
-			}
-			// check about updating total chunk count in case the agent didn't know it ahead of time
-			if agentResponse.Download.TotalChunks != nil && *agentResponse.Download.TotalChunks > 0 {
-				if *agentResponse.Download.TotalChunks > fileMeta.TotalChunks {
-					fileMeta.TotalChunks = *agentResponse.Download.TotalChunks
-				}
-			}
-			if fileMeta.ChunksReceived == fileMeta.TotalChunks {
-				fileMeta.Complete = true
-				// also calculate new md5 and sha1 sums
-				sha1Hash := sha1.New()
-				md5Hash := md5.New()
-				if file, err := os.Open(fileMeta.Path); err != nil {
-					logging.LogError(err, "Failed to open file to calculate md5 and sha1 sums")
-					return "", err
-				} else if _, err := io.Copy(sha1Hash, file); err != nil {
-					logging.LogError(err, "Failed to copy file contents for sha1 hash")
-					return "", err
-				} else if _, err := file.Seek(0, 0); err != nil {
-					logging.LogError(err, "Failed to move file pointer back to beginning")
-				} else if _, err := io.Copy(md5Hash, file); err != nil {
-					logging.LogError(err, "Failed to copy file contents for md5 hash")
-					return "", err
-				} else {
-					fileMeta.Sha1 = hex.EncodeToString(sha1Hash.Sum(nil))
-					fileMeta.Md5 = hex.EncodeToString(md5Hash.Sum(nil))
-				}
-			}
-			if _, err := database.DB.NamedExec(`UPDATE filemeta SET
-			host=:host, is_screenshot=:is_screenshot, 
-			full_remote_path=:full_remote_path, complete=:complete, md5=:md5, sha1=:sha1,
-			filename=:filename, total_chunks=:total_chunks, chunk_size=:chunk_size
-			WHERE id=:id`, fileMeta); err != nil {
-				logging.LogError(err, "Failed to update filemeta based on agent file download")
-				return "", err
-			} else {
-				go EmitFileLog(fileMeta.ID)
-				return fileMeta.AgentFileID, nil
-			}
+			return handleAgentMessageWriteDownloadChunkToLocalDisk(task, fileMeta, agentResponse)
 		}
-	} else if agentResponse.Download.TotalChunks != nil && *agentResponse.Download.TotalChunks > 0 {
+	} else if agentResponse.Download.TotalChunks != nil {
 		// new to make a new file_id and register it for the agent to use for downloading a file
 		// likely looking at step 1
 		var err error
@@ -974,7 +1116,7 @@ func handleAgentMessagePostResponseDownload(task databaseStructs.Task, agentResp
 			OperatorID:          task.OperatorID,
 			Timestamp:           time.Now().UTC(),
 		}
-		if *agentResponse.Download.TotalChunks == 0 {
+		if fileMeta.TotalChunks == 0 {
 			fileMeta.Complete = true
 		}
 		if agentResponse.Download.ChunkSize != nil {
@@ -1021,7 +1163,9 @@ func handleAgentMessagePostResponseDownload(task databaseStructs.Task, agentResp
 		} else {
 			go EmitFileLog(fileMeta.ID)
 			go addFileMetaToMythicTree(task, fileMeta)
-			return fileMeta.AgentFileID, nil
+			// handle the case where the agent sends a chunk along with the registration information
+			return handleAgentMessageWriteDownloadChunkToLocalDisk(task, fileMeta, agentResponse)
+			//return fileMeta.AgentFileID, nil
 		}
 	} else {
 		errorString := "download request without total_chunks or file_id"
@@ -1093,6 +1237,16 @@ func handleAgentMessagePostResponseUpload(task databaseStructs.Task, agentRespon
 					uploadResponse.FileID = *agentResponse.Upload.FileID
 					if uploadResponse.TotalChunks == uploadResponse.ChunkNum && fileMeta.DeleteAfterFetch {
 						go uploadDeleteAfterFetch(fileMeta)
+					}
+					if uploadResponse.TotalChunks == uploadResponse.ChunkNum {
+						go func(file databaseStructs.Filemeta) {
+							EventingChannel <- EventNotification{
+								Trigger:     eventing.TriggerFileUpload,
+								OperationID: task.OperationID,
+								OperatorID:  task.OperatorID,
+								FileMetaID:  file.ID,
+							}
+						}(fileMeta)
 					}
 					return uploadResponse, nil
 				}
@@ -1204,7 +1358,7 @@ func associateFileMetaWithMythicTree(pathData utils.AnalyzedPath, fileMeta datab
 	fileMetaData := map[string]interface{}{
 		"access_time": time.Now().Unix(),
 		"modify_time": time.Now().Unix(),
-		"size":        fileMeta.ChunkSize * fileMeta.TotalChunks,
+		"size":        fileMeta.Size,
 		"permissions": map[string]interface{}{},
 	}
 	newTree.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
@@ -1218,9 +1372,15 @@ func associateFileMetaWithMythicTree(pathData utils.AnalyzedPath, fileMeta datab
 	// now that we know the mythictree entry exists, associate this filemeta with it
 	fileMeta.MythicTreeID.Valid = true
 	fileMeta.MythicTreeID.Int64 = int64(newTree.ID)
-	if _, err := database.DB.NamedExec(`UPDATE filemeta SET mythictree_id=:mythictree_id WHERE id=:id`, fileMeta); err != nil {
+	_, err := database.DB.NamedExec(`UPDATE filemeta SET mythictree_id=:mythictree_id WHERE id=:id`, fileMeta)
+	if err != nil {
 		logging.LogError(err, "Failed to associate filemeta with mythictree ")
 		go SendAllOperationsMessage(fmt.Sprintf("Failed to associate file with file browser: %s\n", fileMeta.AgentFileID), task.OperationID, "", database.MESSAGE_LEVEL_WARNING)
+		return
+	}
+	_, err = database.DB.Exec(`UPDATE mythictree SET "timestamp"=now() WHERE id=$1`, newTree.ID)
+	if err != nil {
+		logging.LogError(err, "failed to update timestamp on mythictree to indicate new file association happened")
 	}
 }
 func addFilePermissions(fileBrowser *agentMessagePostResponseFileBrowser) map[string]interface{} {
@@ -1228,7 +1388,7 @@ func addFilePermissions(fileBrowser *agentMessagePostResponseFileBrowser) map[st
 		"access_time":  fileBrowser.AccessTime,
 		"modify_time":  fileBrowser.ModifyTime,
 		"size":         fileBrowser.Size,
-		"has_children": fileBrowser.Files != nil && len(*fileBrowser.Files) > 0,
+		"has_children": !fileBrowser.IsFile,
 	}
 	switch x := fileBrowser.Permissions.(type) {
 	case []interface{}:
@@ -1261,161 +1421,181 @@ func addChildFilePermissions(fileBrowser *agentMessagePostResponseFileBrowserChi
 	}
 	return fileMetaData
 }
-func handleAgentMessagePostResponseFileBrowser(task databaseStructs.Task, fileBrowser *agentMessagePostResponseFileBrowser) error {
+func HandleAgentMessagePostResponseFileBrowser(task databaseStructs.Task, fileBrowser *agentMessagePostResponseFileBrowser,
+	apitokensId int) error {
 	// given a FileBrowser object, need to insert it into database and potentially insert parents along the way
-	if pathData, err := utils.SplitFilePathGetHost(fileBrowser.ParentPath, fileBrowser.Name, []string{}); err != nil {
+	pathData, err := utils.SplitFilePathGetHost(fileBrowser.ParentPath, fileBrowser.Name, []string{})
+	if err != nil {
 		logging.LogError(err, "Failed to add data for file browser due to path issue")
 		go SendAllOperationsMessage(err.Error(), task.OperationID, "", database.MESSAGE_LEVEL_WARNING)
 		return err
-	} else {
-		if pathData.Host == "" {
-			pathData.Host = strings.ToUpper(task.Callback.Host)
+	}
+	if pathData.Host == "" {
+		pathData.Host = strings.ToUpper(task.Callback.Host)
+	}
+	if fileBrowser.Host != "" {
+		pathData.Host = strings.ToUpper(fileBrowser.Host)
+	}
+	go resolveAndCreateParentPathsForTreeNode(pathData, task, databaseStructs.TREE_TYPE_FILE)
+	// now that the parents and all ancestors are resolved, process the current path and all children
+	realParentPath := strings.Join(pathData.PathPieces, pathData.PathSeparator)
+	// check for the instance of // as a leading path
+	if len(realParentPath) > 2 {
+		if realParentPath[0] == '/' && realParentPath[1] == '/' {
+			realParentPath = realParentPath[1:]
 		}
-		if fileBrowser.Host != "" {
-			pathData.Host = strings.ToUpper(fileBrowser.Host)
-		}
-		go resolveAndCreateParentPathsForTreeNode(pathData, task, databaseStructs.TREE_TYPE_FILE)
-		// now that the parents and all ancestors are resolved, process the current path and all children
-		realParentPath := strings.Join(pathData.PathPieces, pathData.PathSeparator)
-		// check for the instance of // as a leading path
-		if len(realParentPath) > 2 {
-			if realParentPath[0] == '/' && realParentPath[1] == '/' {
-				realParentPath = realParentPath[1:]
-			}
-		}
-		if fileBrowser.Name == "" {
-			logging.LogError(nil, "Can't create file browser entry with empty name")
-			return errors.New("can't make file browser entry with empty name")
-		}
-		fullPath := treeNodeGetFullPath(
-			[]byte(realParentPath),
-			[]byte(fileBrowser.Name),
-			[]byte(pathData.PathSeparator),
-			databaseStructs.TREE_TYPE_FILE)
-		parentPath := treeNodeGetFullPath([]byte(realParentPath), []byte(""), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
-		name := treeNodeGetFullPath([]byte(""), []byte(fileBrowser.Name), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
-		//logging.LogInfo("creating info for listed entry", "name", fileBrowser.Name, "parent", fileBrowser.ParentPath, "fullPath", fullPath, "adjustedParentPath", parentPath)
-		newTree := databaseStructs.MythicTree{
-			Host:            pathData.Host,
-			TaskID:          task.ID,
-			OperationID:     task.OperationID,
-			Name:            name,
-			ParentPath:      parentPath,
-			FullPath:        fullPath,
-			TreeType:        databaseStructs.TREE_TYPE_FILE,
-			CanHaveChildren: !fileBrowser.IsFile,
-			Deleted:         false,
-			Os:              getOSTypeBasedOnPathSeparator(pathData.PathSeparator, databaseStructs.TREE_TYPE_FILE),
-		}
+	}
+	if fileBrowser.Name == "" {
+		logging.LogError(nil, "Can't create file browser entry with empty name")
+		return errors.New("can't make file browser entry with empty name")
+	}
+	fullPath := treeNodeGetFullPath(
+		[]byte(realParentPath),
+		[]byte(fileBrowser.Name),
+		[]byte(pathData.PathSeparator),
+		databaseStructs.TREE_TYPE_FILE)
+	parentPath := treeNodeGetFullPath([]byte(realParentPath), []byte(""), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
+	name := treeNodeGetFullPath([]byte(""), []byte(fileBrowser.Name), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
+	//logging.LogInfo("creating info for listed entry", "name", fileBrowser.Name, "parent", fileBrowser.ParentPath, "fullPath", fullPath, "adjustedParentPath", parentPath)
+	newTree := databaseStructs.MythicTree{
+		Host:            pathData.Host,
+		TaskID:          task.ID,
+		OperationID:     task.OperationID,
+		Name:            name,
+		ParentPath:      parentPath,
+		FullPath:        fullPath,
+		TreeType:        databaseStructs.TREE_TYPE_FILE,
+		CanHaveChildren: !fileBrowser.IsFile,
+		Deleted:         false,
+		Os:              getOSTypeBasedOnPathSeparator(pathData.PathSeparator, databaseStructs.TREE_TYPE_FILE),
+	}
+	if fileBrowser.Success != nil {
 		newTree.Success.Valid = true
-		newTree.Success.Bool = fileBrowser.Success
-		fileMetaData := addFilePermissions(fileBrowser)
-		newTree.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
-		newTree.CallbackID.Valid = true
-		newTree.CallbackID.Int64 = int64(task.Callback.ID)
-		createTreeNode(&newTree)
-		if fileBrowser.UpdateDeleted != nil && *fileBrowser.UpdateDeleted {
-			// we need to iterate over the children for this entry and potentially remove any that the database know of but that aren't in our `files` list
-			var existingTreeEntries []databaseStructs.MythicTree
-			if err = database.DB.Select(&existingTreeEntries, `SELECT 
+		newTree.Success.Bool = *fileBrowser.Success
+	}
+	fileMetaData := addFilePermissions(fileBrowser)
+	newTree.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
+	newTree.CallbackID.Valid = true
+	newTree.CallbackID.Int64 = int64(task.Callback.ID)
+	if apitokensId > 0 {
+		newTree.APITokensID.Valid = true
+		newTree.APITokensID.Int64 = int64(apitokensId)
+	}
+	createTreeNode(&newTree)
+	if fileBrowser.UpdateDeleted != nil && *fileBrowser.UpdateDeleted {
+		// we need to iterate over the children for this entry and potentially remove any that the database know of but that aren't in our `files` list
+		var existingTreeEntries []databaseStructs.MythicTree
+		if err = database.DB.Select(&existingTreeEntries, `SELECT 
     			id, "name", success, full_path, parent_path, operation_id, host, tree_type
 				FROM mythictree WHERE
 				parent_path=$1 AND operation_id=$2 AND host=$3 AND tree_type=$4 AND callback_id=$5`,
-				fullPath, task.OperationID, pathData.Host, databaseStructs.TREE_TYPE_FILE, task.Callback.ID); err != nil {
-				logging.LogError(err, "Failed to fetch existing children")
-				return err
-			} else {
-				var namesToDeleteAndUpdate []string // will get existing database IDs for things that aren't in the files list
-				for _, existingEntry := range existingTreeEntries {
-					if fileBrowser.Files != nil {
-						existingEntryStillExists := false
-						for _, newEntry := range *fileBrowser.Files {
-							if bytes.Equal([]byte(newEntry.Name), existingEntry.Name) {
-								namesToDeleteAndUpdate = append(namesToDeleteAndUpdate, newEntry.Name)
-								existingEntryStillExists = true
-								// update the entry in the database
-								newTreeChild := databaseStructs.MythicTree{
-									Host:            pathData.Host,
-									TaskID:          task.ID,
-									OperationID:     task.OperationID,
-									Name:            []byte(newEntry.Name),
-									ParentPath:      existingEntry.ParentPath,
-									FullPath:        existingEntry.FullPath,
-									TreeType:        databaseStructs.TREE_TYPE_FILE,
-									CanHaveChildren: !newEntry.IsFile,
-									Deleted:         false,
-									Success:         existingEntry.Success,
-									ID:              existingEntry.ID,
-									Os:              newTree.Os,
-								}
-								fileMetaData = addChildFilePermissions(&newEntry)
-								newTreeChild.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
-								newTreeChild.CallbackID.Valid = true
-								newTreeChild.CallbackID.Int64 = int64(task.Callback.ID)
-								updateTreeNode(newTreeChild)
-							}
-						}
-						if !existingEntryStillExists {
-							namesToDeleteAndUpdate = append(namesToDeleteAndUpdate, string(existingEntry.Name))
-							existingEntry.Deleted = true
-							deleteTreeNode(existingEntry, true)
-						}
-					}
-
-				}
-				// now all existing ones have been updated or deleted, so it's time to add new ones
+			fullPath, task.OperationID, pathData.Host, databaseStructs.TREE_TYPE_FILE, task.Callback.ID); err != nil {
+			logging.LogError(err, "Failed to fetch existing children")
+			return err
+		} else {
+			var namesToDeleteAndUpdate []string // will get existing database IDs for things that aren't in the files list
+			for _, existingEntry := range existingTreeEntries {
 				if fileBrowser.Files != nil {
+					existingEntryStillExists := false
 					for _, newEntry := range *fileBrowser.Files {
-						if !utils.SliceContains(namesToDeleteAndUpdate, newEntry.Name) {
-							// this isn't marked as updated or deleted, so let's create it
+						if bytes.Equal([]byte(newEntry.Name), existingEntry.Name) {
+							namesToDeleteAndUpdate = append(namesToDeleteAndUpdate, newEntry.Name)
+							existingEntryStillExists = true
+							// update the entry in the database
 							newTreeChild := databaseStructs.MythicTree{
 								Host:            pathData.Host,
 								TaskID:          task.ID,
 								OperationID:     task.OperationID,
 								Name:            []byte(newEntry.Name),
-								ParentPath:      fullPath,
+								ParentPath:      existingEntry.ParentPath,
+								FullPath:        existingEntry.FullPath,
 								TreeType:        databaseStructs.TREE_TYPE_FILE,
 								CanHaveChildren: !newEntry.IsFile,
 								Deleted:         false,
+								Success:         existingEntry.Success,
+								ID:              existingEntry.ID,
 								Os:              newTree.Os,
 							}
-							newTreeChild.FullPath = treeNodeGetFullPath(fullPath, []byte(newEntry.Name), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
 							fileMetaData = addChildFilePermissions(&newEntry)
 							newTreeChild.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
 							newTreeChild.CallbackID.Valid = true
 							newTreeChild.CallbackID.Int64 = int64(task.Callback.ID)
-							createTreeNode(&newTreeChild)
+							if apitokensId > 0 {
+								newTree.APITokensID.Valid = true
+								newTree.APITokensID.Int64 = int64(apitokensId)
+							}
+							updateTreeNode(newTreeChild)
 						}
+					}
+					if !existingEntryStillExists {
+						namesToDeleteAndUpdate = append(namesToDeleteAndUpdate, string(existingEntry.Name))
+						existingEntry.Deleted = true
+						deleteTreeNode(existingEntry, true)
 					}
 				}
 
 			}
-		} else if fileBrowser.Files != nil {
-			// we're not automatically updating deleted children, so just iterate over the files and insert/update them
-			for _, newEntry := range *fileBrowser.Files {
-				newTreeChild := databaseStructs.MythicTree{
-					Host:            pathData.Host,
-					TaskID:          task.ID,
-					OperationID:     task.OperationID,
-					Name:            []byte(newEntry.Name),
-					ParentPath:      fullPath,
-					TreeType:        databaseStructs.TREE_TYPE_FILE,
-					CanHaveChildren: !newEntry.IsFile,
-					Deleted:         false,
-					Os:              newTree.Os,
+			// now all existing ones have been updated or deleted, so it's time to add new ones
+			if fileBrowser.Files != nil {
+				for _, newEntry := range *fileBrowser.Files {
+					if !utils.SliceContains(namesToDeleteAndUpdate, newEntry.Name) {
+						// this isn't marked as updated or deleted, so let's create it
+						newTreeChild := databaseStructs.MythicTree{
+							Host:            pathData.Host,
+							TaskID:          task.ID,
+							OperationID:     task.OperationID,
+							Name:            []byte(newEntry.Name),
+							ParentPath:      fullPath,
+							TreeType:        databaseStructs.TREE_TYPE_FILE,
+							CanHaveChildren: !newEntry.IsFile,
+							Deleted:         false,
+							Os:              newTree.Os,
+						}
+						newTreeChild.FullPath = treeNodeGetFullPath(fullPath, []byte(newEntry.Name), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
+						fileMetaData = addChildFilePermissions(&newEntry)
+						newTreeChild.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
+						newTreeChild.CallbackID.Valid = true
+						newTreeChild.CallbackID.Int64 = int64(task.Callback.ID)
+						if apitokensId > 0 {
+							newTree.APITokensID.Valid = true
+							newTree.APITokensID.Int64 = int64(apitokensId)
+						}
+						createTreeNode(&newTreeChild)
+					}
 				}
-				newTreeChild.FullPath = treeNodeGetFullPath(fullPath, []byte(newEntry.Name), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
-				fileMetaData = addChildFilePermissions(&newEntry)
-				newTreeChild.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
-				newTreeChild.CallbackID.Valid = true
-				newTreeChild.CallbackID.Int64 = int64(task.Callback.ID)
-				createTreeNode(&newTreeChild)
 			}
+
+		}
+	} else if fileBrowser.Files != nil {
+		// we're not automatically updating deleted children, so just iterate over the files and insert/update them
+		for _, newEntry := range *fileBrowser.Files {
+			newTreeChild := databaseStructs.MythicTree{
+				Host:            pathData.Host,
+				TaskID:          task.ID,
+				OperationID:     task.OperationID,
+				Name:            []byte(newEntry.Name),
+				ParentPath:      fullPath,
+				TreeType:        databaseStructs.TREE_TYPE_FILE,
+				CanHaveChildren: !newEntry.IsFile,
+				Deleted:         false,
+				Os:              newTree.Os,
+			}
+			newTreeChild.FullPath = treeNodeGetFullPath(fullPath, []byte(newEntry.Name), []byte(pathData.PathSeparator), databaseStructs.TREE_TYPE_FILE)
+			fileMetaData = addChildFilePermissions(&newEntry)
+			newTreeChild.Metadata = GetMythicJSONTextFromStruct(fileMetaData)
+			newTreeChild.CallbackID.Valid = true
+			newTreeChild.CallbackID.Int64 = int64(task.Callback.ID)
+			if apitokensId > 0 {
+				newTree.APITokensID.Valid = true
+				newTree.APITokensID.Int64 = int64(apitokensId)
+			}
+			createTreeNode(&newTreeChild)
 		}
 	}
 	return nil
 }
-func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processes *[]agentMessagePostResponseProcesses) error {
+func HandleAgentMessagePostResponseProcesses(task databaseStructs.Task, processes *[]agentMessagePostResponseProcesses,
+	apitokensId int) error {
 	// process data is also represented in a tree format with a full path of the process_id
 	updateDeleted := false
 	for indx, _ := range *processes {
@@ -1446,6 +1626,9 @@ func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processe
 			for _, existingEntry := range existingTreeEntries {
 				existingEntryStillExists := false
 				for _, newEntry := range *processes {
+					if newEntry.Name == "" {
+						newEntry.Name = "unknown"
+					}
 					if strconv.Itoa(newEntry.ProcessID) == string(existingEntry.FullPath) &&
 						newEntry.Name == string(existingEntry.Name) &&
 						strconv.Itoa(newEntry.ParentProcessID) == string(existingEntry.ParentPath) {
@@ -1495,6 +1678,10 @@ func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processe
 						newTree.Metadata = GetMythicJSONTextFromStruct(metadata)
 						newTree.CallbackID.Valid = true
 						newTree.CallbackID.Int64 = int64(task.Callback.ID)
+						if apitokensId > 0 {
+							newTree.APITokensID.Valid = true
+							newTree.APITokensID.Int64 = int64(apitokensId)
+						}
 						createTreeNode(&newTree)
 					}
 				}
@@ -1509,6 +1696,9 @@ func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processe
 			// now all existing ones have been updated or deleted, so it's time to add new ones
 
 			for _, newEntry := range *processes {
+				if newEntry.Name == "" {
+					newEntry.Name = "unknown"
+				}
 				if !utils.SliceContains(namesToDeleteAndUpdate, strconv.Itoa(newEntry.ProcessID)) {
 					// this isn't marked as updated or deleted, so let's create it
 					parentPath := strconv.Itoa(newEntry.ParentProcessID)
@@ -1554,6 +1744,10 @@ func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processe
 					newTree.Metadata = GetMythicJSONTextFromStruct(metadata)
 					newTree.CallbackID.Valid = true
 					newTree.CallbackID.Int64 = int64(task.Callback.ID)
+					if apitokensId > 0 {
+						newTree.APITokensID.Valid = true
+						newTree.APITokensID.Int64 = int64(apitokensId)
+					}
 					createTreeNode(&newTree)
 				}
 			}
@@ -1561,7 +1755,10 @@ func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processe
 		}
 	} else {
 		for _, newEntry := range *processes {
-			host := task.Callback.Host
+			if newEntry.Name == "" {
+				newEntry.Name = "unknown"
+			}
+			host = task.Callback.Host
 			if newEntry.Host != nil && *newEntry.Host != "" {
 				host = strings.ToUpper(*newEntry.Host)
 			}
@@ -1609,6 +1806,10 @@ func handleAgentMessagePostResponseProcesses(task databaseStructs.Task, processe
 			newTree.Metadata = GetMythicJSONTextFromStruct(metadata)
 			newTree.CallbackID.Valid = true
 			newTree.CallbackID.Int64 = int64(task.Callback.ID)
+			if apitokensId > 0 {
+				newTree.APITokensID.Valid = true
+				newTree.APITokensID.Int64 = int64(apitokensId)
+			}
 			createTreeNode(&newTree)
 		}
 	}
@@ -1728,6 +1929,12 @@ func updateTreeNode(treeNode databaseStructs.MythicTree) {
 `, treeNode); err != nil {
 		logging.LogError(err, "Failed to update tree node")
 	}
+	if treeNode.Success.Valid {
+		_, err := database.DB.NamedExec(`UPDATE mythictree SET success=:success WHERE id=:id`, treeNode)
+		if err != nil {
+			logging.LogError(err, "failed to update success status on tree node")
+		}
+	}
 }
 func deleteTreeNode(treeNode databaseStructs.MythicTree, cascade bool) {
 	if cascade {
@@ -1750,21 +1957,31 @@ func deleteTreeNode(treeNode databaseStructs.MythicTree, cascade bool) {
 }
 func createTreeNode(treeNode *databaseStructs.MythicTree) {
 	if len(treeNode.Name) == 0 {
-		logging.LogError(nil, "Can't create file browser entry with empty name")
+		logging.LogError(nil, "Can't create file browser entry with empty name", "tree", treeNode)
 		return
 	}
-	if statement, err := database.DB.PrepareNamed(`INSERT INTO mythictree
-		(host, task_id, operation_id, "name", full_path, parent_path, tree_type, can_have_children, success, metadata, os, callback_id) 
+	statement, err := database.DB.PrepareNamed(`INSERT INTO mythictree
+		(host, task_id, operation_id, "name", full_path, parent_path, tree_type, can_have_children, success, metadata, os, callback_id, apitokens_id) 
 		VALUES 
-		(:host, :task_id, :operation_id, :name, :full_path, :parent_path, :tree_type, :can_have_children, :success, :metadata, :os, :callback_id)
+		(:host, :task_id, :operation_id, :name, :full_path, :parent_path, :tree_type, :can_have_children, :success, :metadata, :os, :callback_id, :apitokens_id)
 		ON CONFLICT (host, operation_id, full_path, tree_type, callback_id)
 		DO UPDATE SET
 		task_id=:task_id, "name"=:name, parent_path=:parent_path, can_have_children=:can_have_children,
 		    metadata=mythictree.metadata || :metadata, os=:os, "timestamp"=now(), deleted=false
-		    RETURNING id`); err != nil {
+		    RETURNING id`)
+	if err != nil {
 		logging.LogError(err, "Failed to create new mythictree statement")
-	} else if err = statement.Get(&treeNode.ID, treeNode); err != nil {
+		return
+	}
+	err = statement.Get(&treeNode.ID, treeNode)
+	if err != nil {
 		logging.LogError(err, "Failed to create new mythictree entry")
+	}
+	if treeNode.Success.Valid {
+		_, err = database.DB.NamedExec(`UPDATE mythictree SET success=:success WHERE id=:id`, treeNode)
+		if err != nil {
+			logging.LogError(err, "failed to update success status on tree node")
+		}
 	}
 }
 func addFileMetaToMythicTree(task databaseStructs.Task, newFile databaseStructs.Filemeta) {
@@ -1805,8 +2022,14 @@ func addFileMetaToMythicTree(task databaseStructs.Task, newFile databaseStructs.
 	} else if err == nil {
 		newFile.MythicTreeID.Int64 = int64(fileBrowser.ID)
 		newFile.MythicTreeID.Valid = true
-		if _, err := database.DB.NamedExec(`UPDATE filemeta SET mythictree_id=:mythictree_id WHERE id=:id`, newFile); err != nil {
+		_, err = database.DB.NamedExec(`UPDATE filemeta SET mythictree_id=:mythictree_id WHERE id=:id`, newFile)
+		if err != nil {
 			logging.LogError(err, "Failed to update file meta with mythic tree id")
+			return
+		}
+		_, err = database.DB.Exec(`UPDATE mythictree SET "timestamp"=now() WHERE id=$1`, fileBrowser.ID)
+		if err != nil {
+			logging.LogError(err, "failed to update timestamp on mythictree to indicate new file association happened")
 		}
 
 	} else {
@@ -1821,14 +2044,14 @@ func handleAgentMessagePostResponseEdges(uuidInfo *cachedUUIDInfo, edges *[]agen
 			} else if edge.Action == "remove" {
 				callbackGraph.RemoveByAgentIds(edge.Source, edge.Destination, edge.C2Profile)
 				if edge.Source == edge.Destination && edge.Source == uuidInfo.UUID {
-					logging.LogInfo("updating our own edge id")
+					//logging.LogInfo("updating our own edge id")
 					MarkCallbackInfoInactive(uuidInfo.CallbackID)
 				}
 			}
 		}
 	}
 }
-func handleAgentMessagePostResponseAlerts(operationID int, callbackID int, alerts *[]agentMessagePostResponseAlert) {
+func handleAgentMessagePostResponseAlerts(operationID int, callbackID int, displayID int, alerts *[]agentMessagePostResponseAlert) {
 	if alerts == nil {
 		return
 	}
@@ -1853,17 +2076,18 @@ func handleAgentMessagePostResponseAlerts(operationID int, callbackID int, alert
 		go SendAllOperationsMessage(alert.Alert, operationID, source, level)
 		if level != database.MESSAGE_LEVEL_WARNING && alert.SendWebhook {
 			// send this as a custom webhook message
-			go submitAgentAlertToWebhook(operationID, callbackID, alert)
+			go submitAgentAlertToWebhook(operationID, callbackID, displayID, alert)
 		}
 	}
 }
-func submitAgentAlertToWebhook(operationID int, callbackID int, alert agentMessagePostResponseAlert) {
+func submitAgentAlertToWebhook(operationID int, callbackID int, callbackDisplayID int, alert agentMessagePostResponseAlert) {
 	operationInfo := databaseStructs.Operation{}
-	if err := database.DB.Get(&operationInfo, `SELECT * FROM operation WHERE id=$1`, operationID); err != nil {
+	err := database.DB.Get(&operationInfo, `SELECT * FROM operation WHERE id=$1`, operationID)
+	if err != nil {
 		logging.LogError(err, "Failed to find operation information when sending custom webhook")
 		return
 	}
-	if err := RabbitMQConnection.EmitWebhookMessage(WebhookMessage{
+	err = RabbitMQConnection.EmitWebhookMessage(WebhookMessage{
 		OperationID:      operationInfo.ID,
 		OperationName:    operationInfo.Name,
 		OperationWebhook: operationInfo.Webhook,
@@ -1871,12 +2095,25 @@ func submitAgentAlertToWebhook(operationID int, callbackID int, alert agentMessa
 		OperatorUsername: "",
 		Action:           WEBHOOK_TYPE_CUSTOM,
 		Data: map[string]interface{}{
-			"callback_id":   callbackID,
-			"alert":         alert.Alert,
-			"webhook_alert": alert.WebhookAlert,
-			"source":        alert.Source,
+			"callback_id":         callbackID,
+			"callback_display_id": callbackDisplayID,
+			"alert":               alert.Alert,
+			"webhook_alert":       alert.WebhookAlert,
+			"source":              alert.Source,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		logging.LogError(err, "Failed to send webhook")
+	}
+	EventingChannel <- EventNotification{
+		Trigger:     eventing.TriggerAlert,
+		OperationID: operationInfo.ID,
+		Outputs: map[string]interface{}{
+			"callback_id":         callbackID,
+			"callback_display_id": callbackDisplayID,
+			"source":              alert.Source,
+			"alert":               alert.Alert,
+			"webhook_alert":       alert.WebhookAlert,
+		},
 	}
 }

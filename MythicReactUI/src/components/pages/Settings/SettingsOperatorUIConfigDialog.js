@@ -10,13 +10,23 @@ import Box from '@mui/material/Box';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableContainer from '@mui/material/TableContainer';
-import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import {HexColorInput, HexColorPicker} from 'react-colorful';
+import {useMythicSetting} from "../../MythicComponents/MythicSavedUserSetting";
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import Input from '@mui/material/Input';
 
-
+const interactTypeOptions = [
+    {value: "interact", display: "Accordions"},
+    {value: "interactSplit", display: "Split View"},
+    {value: "interactConsole", display: "Console Like"}
+];
 export function SettingsOperatorUIConfigDialog(props) {
     const me = props.me;
+    const initialLocalStorageInteractType = useMythicSetting({setting_name: 'interactType', default_value: "interact", output: "string"});
+    const [interactType, setInteractType] = React.useState(initialLocalStorageInteractType);
+
     const localStorageFontSize = localStorage.getItem(`${me?.user?.user_id || 0}-fontSize`);
     const initialLocalStorageFontSizeValue = localStorageFontSize === null ? 12 : parseInt(localStorageFontSize);
     const localStorageFontFamily = localStorage.getItem(`${me?.user?.user_id || 0}-fontFamily`);
@@ -33,24 +43,24 @@ export function SettingsOperatorUIConfigDialog(props) {
         '"Segoe UI Symbol"',
       ].join(',') : localStorageFontFamily;
     const localStorageTopColor = localStorage.getItem(`${me?.user?.user_id || 0}-topColor`);
-    const initialLocalStorageTopColorValue = localStorageTopColor === null ? "#7f93c0" : localStorageTopColor;
+    const initialLocalStorageTopColorValue = localStorageTopColor === null ?  "#3c4d67" : localStorageTopColor;
     const [fontSize, setFontSize] = React.useState(initialLocalStorageFontSizeValue);
     const [fontFamily, setFontFamily] = React.useState(initialLocalStorageFontFamilyValue);
     const [topColor, setTopColor] = React.useState(initialLocalStorageTopColorValue);
-    const localStorageInitialHideUsernameValue = localStorage.getItem(`${me?.user?.user_id || 0}-hideUsernames`);
-    const initialHideUsernameValue = localStorageInitialHideUsernameValue === null ? false : (localStorageInitialHideUsernameValue.toLowerCase() === "false" ? false : true);
+
+    const initialShowMediaValue = useMythicSetting({setting_name: "showMedia", default_value: "true"});
+    const [showMedia, setShowMedia] = React.useState(initialShowMediaValue);
+
+    const initialHideUsernameValue = useMythicSetting({setting_name: "hideUsernames", default_value: "false"});
     const [hideUsernames, setHideUsernames] = React.useState(initialHideUsernameValue);
 
-    const localStorageInitialShowIPValue = localStorage.getItem(`${me?.user?.user_id || 0}-showIP`);
-    const initialShowIPValue = localStorageInitialShowIPValue === null ? false : (localStorageInitialShowIPValue.toLowerCase() === "false" ? false : true);
+    const initialShowIPValue = useMythicSetting({setting_name: "showIP", default_value: "false"});
     const [showIP, setShowIP] = React.useState(initialShowIPValue);
 
-    const localStorageInitialShowHostnameValue = localStorage.getItem(`${me?.user?.user_id || 0}-showHostname`);
-    const initialShowHostnameValue = localStorageInitialShowHostnameValue === null ? false : (localStorageInitialShowHostnameValue.toLowerCase() === "false" ? false : true);
+    const initialShowHostnameValue = useMythicSetting({setting_name: "showHostname", default_value: "false"});
     const [showHostname, setShowHostname] = React.useState(initialShowHostnameValue);
 
-    const localStorageInitialShowCallbackGroupsValue = localStorage.getItem(`${me?.user?.user_id || 0}-showCallbackGroups`);
-    const initialShowCallbackGroupsValue = localStorageInitialShowCallbackGroupsValue === null ? false : (localStorageInitialShowCallbackGroupsValue.toLowerCase() === "false" ? false : true);
+    const initialShowCallbackGroupsValue = useMythicSetting({setting_name: "showCallbackGroups", default_value: "false"});
     const [showCallbackGroups, setShowCallbackGroups] = React.useState(initialShowCallbackGroupsValue);
 
     const [resumeNotifications, setResumeNotifications] = React.useState(false);
@@ -72,19 +82,16 @@ export function SettingsOperatorUIConfigDialog(props) {
     const onShowCallbackGroupsChanged = (evt) => {
         setShowCallbackGroups(!showCallbackGroups);
     }
+    const onShowMediaChanged = (evt) => {
+        setShowMedia(!showMedia);
+    }
     const onResumeNotifications = (evt) => {
         setResumeNotifications(!resumeNotifications);
     }
+    const onChangeInteractType = (evt) => {
+        setInteractType(evt.target.value);
+    }
     const onAccept = () => {
-      props.onAccept({
-        fontSize,
-        fontFamily,
-        topColor,
-        hideUsernames,
-          showIP,
-          showHostname,
-          showCallbackGroups,
-      });
       if(resumeNotifications){
           localStorage.setItem("dnd", JSON.stringify({
               "doNotDisturb": false,
@@ -92,6 +99,16 @@ export function SettingsOperatorUIConfigDialog(props) {
               "doNotDisturbMinutes": 0
           }))
       }
+        localStorage.setItem(`${me?.user?.user_id || 0}-hideUsernames`, hideUsernames);
+        localStorage.setItem(`${me?.user?.user_id || 0}-showIP`, showIP);
+        localStorage.setItem(`${me?.user?.user_id || 0}-showHostname`, showHostname);
+        localStorage.setItem(`${me?.user?.user_id || 0}-showCallbackGroups`, showCallbackGroups);
+        localStorage.setItem(`${me?.user?.user_id || 0}-fontSize`, fontSize);
+        localStorage.setItem(`${me?.user?.user_id || 0}-fontFamily`, fontFamily);
+        localStorage.setItem(`${me?.user?.user_id || 0}-topColor`, topColor);
+        localStorage.setItem(`${me?.user?.user_id || 0}-showMedia`, showMedia);
+        localStorage.setItem(`${me?.user?.user_id || 0}-interactType`, interactType);
+        window.location.reload();
       props.onClose();
     }
     const setDefaults = () => {
@@ -108,17 +125,19 @@ export function SettingsOperatorUIConfigDialog(props) {
         '"Segoe UI Emoji"',
         '"Segoe UI Symbol"',
       ].join(','));
-      setTopColor("#3c4d67");
+      setTopColor( "#3c4d67");
       setHideUsernames(false);
       setShowIP(false);
       setShowHostname(false);
       setShowCallbackGroups(false);
+      setShowMedia(true);
+      setInteractType("interact");
     }
   
   return (
     <React.Fragment>
         <DialogTitle id="form-dialog-title">Configure UI Settings</DialogTitle>
-          <TableContainer component={Paper} className="mythicElement">
+          <TableContainer className="mythicElement">
           <Table size="small" style={{ "maxWidth": "100%", "overflow": "scroll"}}>
               <TableBody>
                 <TableRow hover>
@@ -139,8 +158,8 @@ export function SettingsOperatorUIConfigDialog(props) {
                     <Switch
                       checked={hideUsernames}
                       onChange={onHideUsernamesChanged}
-                      color="primary"
-                      inputProps={{ 'aria-label': 'primary checkbox' }}
+                      color="info"
+                      inputProps={{ 'aria-label': 'info checkbox' }}
                       name="hide_usernames"
                     />
                   </TableCell>
@@ -151,8 +170,8 @@ export function SettingsOperatorUIConfigDialog(props) {
                           <Switch
                               checked={showIP}
                               onChange={onShowIPChanged}
-                              color="primary"
-                              inputProps={{ 'aria-label': 'primary checkbox' }}
+                              color="info"
+                              inputProps={{ 'aria-label': 'info checkbox' }}
                               name="show_ip"
                           />
                       </TableCell>
@@ -163,8 +182,8 @@ export function SettingsOperatorUIConfigDialog(props) {
                           <Switch
                               checked={showHostname}
                               onChange={onShowHostnameChanged}
-                              color="primary"
-                              inputProps={{ 'aria-label': 'primary checkbox' }}
+                              color="info"
+                              inputProps={{ 'aria-label': 'info checkbox' }}
                               name="show_hostname"
                           />
                       </TableCell>
@@ -175,9 +194,21 @@ export function SettingsOperatorUIConfigDialog(props) {
                           <Switch
                               checked={showCallbackGroups}
                               onChange={onShowCallbackGroupsChanged}
-                              color="primary"
-                              inputProps={{ 'aria-label': 'primary checkbox' }}
+                              color="info"
+                              inputProps={{ 'aria-label': 'info checkbox' }}
                               name="show_callback_groups"
+                          />
+                      </TableCell>
+                  </TableRow>
+                  <TableRow hover>
+                      <TableCell>Automatically show Media in Browser scripts</TableCell>
+                      <TableCell>
+                          <Switch
+                              checked={showMedia}
+                              onChange={onShowMediaChanged}
+                              color="info"
+                              inputProps={{ 'aria-label': 'info checkbox' }}
+                              name="show_media"
                           />
                       </TableCell>
                   </TableRow>
@@ -187,10 +218,28 @@ export function SettingsOperatorUIConfigDialog(props) {
                           <Switch
                               checked={resumeNotifications}
                               onChange={onResumeNotifications}
-                              color="primary"
-                              inputProps={{ 'aria-label': 'primary checkbox' }}
+                              color="info"
+                              inputProps={{ 'aria-label': 'info checkbox' }}
                               name="resumeNotifications"
                           />
+                      </TableCell>
+                  </TableRow>
+                  <TableRow>
+                      <TableCell>
+                          Choose default type of tasking display
+                      </TableCell>
+                      <TableCell>
+                          <Select
+                              labelId="demo-dialog-select-label"
+                              id="demo-dialog-select"
+                              value={interactType}
+                              onChange={onChangeInteractType}
+                              input={<Input style={{width: "100%"}}/>}
+                          >
+                              {interactTypeOptions.map( (opt) => (
+                                  <MenuItem value={opt.value} key={opt.value}>{opt.display}</MenuItem>
+                              ) )}
+                          </Select>
                       </TableCell>
                   </TableRow>
                 <TableRow hover>

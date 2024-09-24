@@ -1,8 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"github.com/MythicMeta/Mythic_CLI/cmd/internal"
+	"github.com/MythicMeta/Mythic_CLI/cmd/config"
 	"github.com/spf13/cobra"
 )
 
@@ -22,6 +21,5 @@ func init() {
 }
 
 func configSet(cmd *cobra.Command, args []string) {
-	internal.SetConfigStrings(args[0], args[1])
-	fmt.Println("[+] Configuration successfully updated. Bring containers down and up for changes to take effect.")
+	config.SetConfigStrings(args[0], args[1])
 }

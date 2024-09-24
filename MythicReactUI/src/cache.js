@@ -1,5 +1,4 @@
 import { makeVar } from '@apollo/client';
-import React from 'react';
 import {restartWebsockets} from "./index";
 import {snackActions} from "./components/utilities/Snackbar";
 
@@ -30,6 +29,12 @@ export const FailedRefresh = () =>{
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user");
+    // retrieve all cookies
+    let Cookies = document.cookie.split(';');
+    // set past expiry to all cookies
+    for (let i = 0; i < Cookies.length; i++) {
+        document.cookie = Cookies[i] + "=; expires="+ new Date(0).toUTCString();
+    }
     meState({
         loggedIn: false,
         access_token: null,
